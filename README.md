@@ -11,7 +11,7 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Plugin | Skills | Status |
 |---|---|---|
 | `todo` | todo | available |
-| `recall` | log, debrief (built); memex, note (planned) | available |
+| `recall` | log, debrief, note (built); memex (planned) | available |
 
 ## Install
 

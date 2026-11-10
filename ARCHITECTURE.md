@@ -4,8 +4,8 @@ mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with two plugins.
 
-Status: `todo` and `recall`'s `log` and `debrief` are built; `note` and `memex` are
-design. See `README.md`.
+Status: `todo` and `recall`'s `log`, `debrief` and `note` are built; `memex` is design.
+See `README.md`.
 
 ## Model
 
@@ -62,7 +62,8 @@ enable a subset of a plugin's skills, hence two plugins).
 - **memex → todo**: consolidation proposals land under `You` in `TODO.md`.
 - **todo is independent**: it knows none of the other skills and works alone.
   An item links a note only when the user names an existing one.
-- **note → todo**: a stale note becomes a `You` item ("convert or delete?").
+- **note → debrief**: stale notes are listed under "Needs you" (convert or
+  delete). Nothing writes them into `TODO.md`.
 - **debrief** is the only reader across the family and writes nothing.
 - **The `TODO.md` format is an interface**, owned by `todo` (with its check
   script). Other skills reference it, never copy it.
@@ -230,10 +231,16 @@ Fleeting notes: research, design, work in progress. A note exists to be turned
 into docs, which do not exist at first and are generated from the notes later.
 
 - Created only by the user, through `note` (`disable-model-invocation`).
-- Location: `note/` at the project root, git-ignored; in a scratch topic when
-  there is no project. `[[wikilinks]]`, checked with `wkref check --root note`.
-- Each note has a `created` date. Notes older than about four weeks surface as
-  `You` items in `TODO.md`.
+- Location: `note/` at the project root; in a scratch topic when there is no
+  project. `[[wikilinks]]`, checked with `wkref check --root note`.
+- Git-ignored through the clone's local `.git/info/exclude`, so no commit lands in
+  anyone's repo. `notes.sh init` refuses a `note/` that already holds tracked
+  files: untracking them is the user's call.
+- Each note has a `created` date (frontmatter, else the file's mtime). Notes older
+  than 28 days are stale: `debrief` lists them under "Needs you".
+- Operations: write (create or update), `list`, `check`, `convert` (lasting
+  content into `README.md`, `ARCHITECTURE.md`, `CLAUDE.md` or `docs/`, after the
+  user approves the edits), `delete` (explicit yes only, with `wkref rm`).
 - A note is deleted only with the user, never automatically: once its content is
   in docs, or (no docs target) once its findings are in the log, hence memex.
 - Not versioned: every note is written in a session, so its content is in the
@@ -260,15 +267,16 @@ fixed layout (empty sections hidden) so it reads the same every time; the model
 only adds a one-line "Where we are" from the log details.
 
 - **Needs you**: `You` items from every `TODO.md` (questions first), issues
-  labelled `user`, and Claude auto memory folders holding notes to promote;
+  labelled `user`, Claude auto memory folders holding notes to promote, and
+  projects with stale notes;
 - **Running now**: other live Claude sessions (tmux pane, lines not logged yet)
   and clones with uncommitted or unpushed work;
 - **Log**: the latest N entries, or `last` (since the previous unfiltered
   debrief, time kept in `~/.cache/recall/debrief/last-run`);
 - **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
 - with a filter, one project in full;
-- once built: memex changes since the last debrief, pending consolidation
-  proposals, stale notes.
+- once memex is built: its changes since the last debrief and pending
+  consolidation proposals.
 
 It shows what changed in memex, not memex content: content is what `find` is
 for.
@@ -278,5 +286,3 @@ for.
 - Transcripts are the raw source but are local to each host, unbacked, and kept
   365 days by default (`cleanupPeriodDays`). They need an encrypted backup and
   longer retention; notes depend on it too.
-- Notes surfacing in `TODO.md` vs a separate debrief list: decide when `note`
-  is built.

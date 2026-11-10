@@ -25,6 +25,7 @@ HOME = Path.home()
 SKILLS_DIR = Path(__file__).resolve().parents[2]
 LOG_ENTRIES = HOME / "log/entries.jsonl"
 LOGGED_LINE_SCRIPT = SKILLS_DIR / "log/scripts/logged-line.sh"
+NOTES_SCRIPT = SKILLS_DIR / "note/scripts/notes.sh"
 LAST_DEBRIEF_FILE = HOME / ".cache/recall/debrief/last-run"
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
@@ -333,6 +334,30 @@ def render_memory_line(project_filter: str) -> list[str]:
     return ["- Memory to promote: " + " · ".join(parts)]
 
 
+def render_stale_notes_line(project_filter: str) -> list[str]:
+    """One line listing projects with stale notes, to convert into docs or delete."""
+    roots = [
+        *(git.parent for git in clone_paths("*/*/*/.git")),
+        *clone_paths("scratch/*/"),
+    ]
+    parts = []
+    for root in roots:
+        name = str(root.relative_to(HOME)).removeprefix("GitHub/")
+        if project_filter not in name or not (root / "note").is_dir():
+            continue
+        notes = [
+            line.split("\t")
+            for line in run([str(NOTES_SCRIPT), "list", str(root)]).splitlines()
+        ]
+        stale = [note for note in notes if note[3] == "stale"]
+        if stale:
+            oldest_days = max(int(note[2]) for note in stale)
+            parts.append(f"`{name}` {len(stale)} (oldest {oldest_days} d)")
+    if not parts:
+        return []
+    return ["- Notes to convert or delete: " + " · ".join(parts)]
+
+
 def render_project_line(project: Project) -> str:
     """Big-picture line: what's next, then counts."""
     now, upcoming = project.todo.get("Now", []), project.todo.get("Next", [])
@@ -418,7 +443,10 @@ def main() -> None:
             report.extend([f"**{heading}**", "", *lines, ""])
 
     add_section(
-        "Needs you", render_needs_you(projects) + render_memory_line(project_filter)
+        "Needs you",
+        render_needs_you(projects)
+        + render_memory_line(project_filter)
+        + render_stale_notes_line(project_filter),
     )
     add_section("Running now", running)
     if entries or selection == "last":
