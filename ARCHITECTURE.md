@@ -59,8 +59,9 @@ enable a subset of a plugin's skills, hence two plugins).
   the log of the session that worked on it.
 - **log → todo**: log entries never hold next steps; open items go to `TODO.md`.
 - **memex → todo**: consolidation proposals land under `You` in `TODO.md`.
-- **note ↔ todo**: a todo item links its note; a stale note becomes a `You`
-  item ("convert or delete?").
+- **todo is independent**: it knows none of the other skills and works alone.
+  An item links a note only when the user names an existing one.
+- **note → todo**: a stale note becomes a `You` item ("convert or delete?").
 - **debrief** is the only reader across the family and writes nothing.
 - **The `TODO.md` format is an interface**, owned by `todo` (with its check
   script). Other skills reference it, never copy it.
@@ -202,6 +203,12 @@ into docs, which do not exist at first and are generated from the notes later.
 Open items per project in `TODO.md`: questions and actions for the user
 (`You`), then `Now`, `Next`, `Later`. Format and check script live in the
 `todo` plugin. Done items are deleted; the log and git history record them.
+
+- Independent: installable and usable without `recall`.
+- Long item detail goes in a detail file under `tmp/` (git-ignored), linked from
+  the item, and deleted with it.
+- When adding an item, the user may name an existing note to link. todo never
+  creates or deletes a note.
 
 ## debrief
 

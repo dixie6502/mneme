@@ -48,9 +48,11 @@ unasked.
 ```
 
 - Sections in this order: `You`, `Now`, `Next`, `Later`. Empty ones may stay or go.
-- One line per item, as an instruction or a question. Longer detail goes in a separate
-  note file that the item links to. The note follows the TODO's tracking: `docs/` when
-  `TODO.md` is version-controlled, `tmp/` when it is not.
+- One line per item, as an instruction or a question. Longer detail goes in a detail
+  file under `tmp/` (git-ignored) that the item links to, whether or not `TODO.md` is
+  version-controlled.
+- When adding an item, the user may name an existing note it relates to: link it from
+  the item. Never create a note for an item.
 - `You` items start with `?` (question, with the recommended answer when there is one)
   or `!` (action).
 - `Now` holds one item at most.
@@ -62,7 +64,7 @@ unasked.
 - **Convert** an existing unmanaged `TODO.md`:
   1. Read it. Map each open item to a section, keeping its wording; drop done items.
   2. Content that is not an item (prose, other headings, unclear status): ask the user
-     where it goes, or whether to move it to a note file.
+     where it goes, or whether to move it to a detail file in `tmp/`.
   3. Show the full converted file and wait for the user's confirmation.
   4. Write it with the marker as first line, then run `check` until it passes.
 - **What's next:** answer in a few lines: the `Now` item, else the first `Next` item;
@@ -73,7 +75,8 @@ unasked.
 - **Answer:** the user answers on the item's line (`→ yes`), ticks it (`[x]`), or answers
   in the session. Act on it, then delete the item.
 - **Finish:** delete the item; if it was `Now`, move the first `Next` item up. Delete
-  its note file too, after moving any lasting content to `README.md` or `ARCHITECTURE.md`.
+  its detail file in `tmp/` too, after moving any lasting content to `README.md` or
+  `ARCHITECTURE.md`. A linked note is left as it is.
 - **Reorder:** move items when priorities change. Never reword the user's items.
 - **Check / fix:** `todo.sh check [file]` prints each format error with its line number
   and lists ticked items waiting for removal. Fix by hand, keeping the wording, and
