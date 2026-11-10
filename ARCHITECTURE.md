@@ -4,7 +4,7 @@ mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with two plugins.
 
-Status: design. Nothing is built yet; see `README.md` for progress.
+Status: `todo` is built; `recall` is design. See `README.md`.
 
 ## Model
 

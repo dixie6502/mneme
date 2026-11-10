@@ -1,5 +1,14 @@
 {
   "name": "mneme",
-  "owner": { "name": "dixie6502" },
-  "plugins": []
+  "owner": {
+    "name": "dixie6502"
+  },
+  "description": "An agent's information system: log, memex, note, todo, debrief.",
+  "plugins": [
+    {
+      "name": "todo",
+      "source": "./plugins/todo",
+      "description": "Open items per project in a managed TODO.md."
+    }
+  ]
 }

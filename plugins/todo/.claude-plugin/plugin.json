@@ -1,0 +1,6 @@
+{
+  "name": "todo",
+  "description": "Track each project's open items in a managed TODO.md. A hook checks the format after each edit.",
+  "author": { "name": "dixie6502" },
+  "repository": "https://github.com/dixie6502/mneme"
+}

@@ -10,7 +10,7 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 | Plugin | Skills | Status |
 |---|---|---|
-| `todo` | todo | planned |
+| `todo` | todo | available |
 | `recall` | log, memex, note, debrief | planned |
 
 ## Install
@@ -21,4 +21,15 @@ claude plugin install todo@mneme      # open items only
 claude plugin install recall@mneme    # the full system (pulls in todo)
 ```
 
-Nothing is installable yet: the marketplace lists plugins as they are built.
+`recall` is not built yet. Do not enable `todo@mneme` next to another plugin that
+ships a `todo` skill: both would manage the same `TODO.md`.
+
+## Develop
+
+Load a plugin from the clone for one session, without installing it:
+
+```
+claude --plugin-dir ./plugins/todo
+```
+
+Check the manifests with `claude plugin validate .`.

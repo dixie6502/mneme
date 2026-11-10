@@ -1,0 +1,17 @@
+{
+  "description": "Checks the format of a TODO.md managed by /todo after Claude edits it.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-todo-after-edit.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
