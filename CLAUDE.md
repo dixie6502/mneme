@@ -6,7 +6,8 @@ Claude Code marketplace for dixie's information system. Design in
 ## Public repo
 
 - Never name a client, organization other than `dixie6502`, host, email or
-  person. Use placeholders (`<owner>`, `<hostname>`).
+  person. Use placeholders (`<owner>`, `<hostname>`). Only exception: the
+  `LICENSE` copyright line for `alxn0`, required for the code copied from kit.
 - `pre-commit` (gitleaks included) passes before every commit.
 
 ## Git
