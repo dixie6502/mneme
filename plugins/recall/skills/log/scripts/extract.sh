@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Print a JSON digest of lines FROM..TO of a Claude Code transcript: the
-# user's prompts, dixie's replies, and the commits, issues and memory notes
-# that an entry may link. Deterministic; the model only summarises it.
+# user's prompts, dixie's replies, the commits, issues and memory notes that an
+# entry may link, and the facts the user asked memex to remember. Deterministic;
+# the model only summarises it.
 # Usage: extract.sh <transcript.jsonl> <from_line> <to_line>
 set -euo pipefail
 
@@ -38,7 +39,14 @@ messages_json=$(transcript_part | jq -R -s --argjson max "$MAX_TEXT_CHARS" \
       memory: ([$records[] | select(.type == "assistant") | .message.content[]?
         | select(.type == "tool_use" and (.name == "Write" or .name == "Edit"))
         | .input.file_path // empty | select(test("/\\.claude/projects/[^/]+/memory/"))
-        | split("/") | last | rtrimstr(".md")] | unique)
+        | split("/") | last | rtrimstr(".md")] | unique),
+      remember: [$records[]
+        | select(.type == "user" and (.message.content | type) == "string"
+            and .origin.kind == "human")
+        | .message.content
+        | select(test("<command-name>/(recall:)?memex</command-name>"))
+        | capture("<command-args>\\s*remember\\s+(?<text>[\\s\\S]*?)\\s*</command-args>")
+        | .text | gsub("\\s+"; " ")]
     }')
 
 start=$(jq -r '.start // empty' <<<"$messages_json")

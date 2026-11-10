@@ -421,6 +421,7 @@ def render_entry(entry: dict, is_in_full: bool) -> list[str]:
         ]
         lines += [f"  - Found: {found['text']}" for found in entry["found"]]
         lines += [f"  - Decided: {decided}" for decided in entry["decided"]]
+        lines += [f"  - Remember: {fact}" for fact in entry.get("remember", [])]
     return lines
 
 

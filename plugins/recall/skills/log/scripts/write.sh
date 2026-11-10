@@ -33,7 +33,10 @@ trap 'rm -f "$digest"' EXIT
 
 prompts=$(jq '[.messages[] | select(.who == "user")] | length' "$digest")
 commits=$(jq '.commits | length' "$digest")
-if ((prompts < MIN_PROMPTS_WITHOUT_COMMIT && commits == 0)); then
+remembers=$(jq '.remember | length' "$digest")
+# A part holding a memex "remember" is always logged, so the fact reaches memex.
+readonly REMEMBER_ONLY='{"skip":false,"topic":"Remember","done":[],"found":[],"decided":[]}'
+if ((prompts < MIN_PROMPTS_WITHOUT_COMMIT && commits == 0 && remembers == 0)); then
   mark_skipped "$to_line" "trivial: $prompts prompts, no commit"
   exit 0
 fi
@@ -55,8 +58,11 @@ if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
   echo "$session: refused by sonnet, retrying with haiku" >&2
   reply=$(summarise haiku)
   if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
-    mark_skipped "$to_line" "refused by both models: lines $from_line-$to_line not logged"
-    exit 0
+    if ((remembers == 0)); then
+      mark_skipped "$to_line" "refused by both models: lines $from_line-$to_line not logged"
+      exit 0
+    fi
+    reply=$(jq -c --argjson only "$REMEMBER_ONLY" '.output = $only' <<<"$reply")
   fi
 fi
 result=$(jq -c '.output' <<<"$reply")
@@ -65,8 +71,11 @@ if [[ $result == null || -z $result ]]; then
   exit 1
 fi
 if [[ $(jq '.skip' <<<"$result") == true ]]; then
-  mark_skipped "$to_line" "model: nothing worth logging"
-  exit 0
+  if ((remembers == 0)); then
+    mark_skipped "$to_line" "model: nothing worth logging"
+    exit 0
+  fi
+  result=$REMEMBER_ONLY
 fi
 
 # Keep only links that exist in the digest: the model cannot invent a commit.
@@ -85,7 +94,8 @@ entry=$(jq -c --slurpfile digest "$digest" --arg home "$HOME/" '
      | map(select(. != "")) | unique),
    done: [$done[] | .issues |= known($d.issues)],
    found: [.found[] | .issues |= known($d.issues) | .memory |= known($d.memory)],
-   decided: .decided}' <<<"$result")
+   decided: .decided,
+   remember: $d.remember}' <<<"$result")
 
 end_time=$(jq -r '.end' <<<"$entry")
 day=$(date -d "$end_time" +%F)
@@ -99,7 +109,8 @@ day_file="$LOG_DIR/$day.md"
       as $r | if $r == "" then "" else " (\($r))" end;
     (.done[] | "- Done: \(.text)\(refs(.commits + .issues))"),
     (.found[] | "- Found: \(.text)\(refs(.issues + (.memory | map("[[\(.)]]"))))"),
-    (.decided[] | "- Decided: \(.)")' <<<"$entry" |
+    (.decided[] | "- Decided: \(.)"),
+    (.remember[] | "- Remember: \(.)")' <<<"$entry" |
     while IFS= read -r line; do
       fold -s -w "$WRAP_WIDTH" <<<"$line" | sed -e 's/ *$//' -e '2,$s/^/  /'
     done

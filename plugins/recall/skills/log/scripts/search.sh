@@ -17,7 +17,7 @@ pattern=${1:?usage: search.sh [--transcripts] <regex>}
 echo "## entries.jsonl"
 if [[ -f $ENTRIES ]]; then
   jq -c --arg re "$pattern" 'select(tostring | test($re; "i"))
-    | {session, end, topic, done, found, decided, next}' "$ENTRIES"
+    | {session, end, topic, done, found, decided, remember, next}' "$ENTRIES"
 fi
 
 echo
