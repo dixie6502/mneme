@@ -4,7 +4,8 @@ mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with two plugins.
 
-Status: `todo` is built; `recall` is design. See `README.md`.
+Status: `todo` and `recall`'s `log` and `debrief` are built; `note` and `memex` are
+design. See `README.md`.
 
 ## Model
 
@@ -88,6 +89,39 @@ missed.
 - `log` answers "when did we…", "why did we…" from the entries, falling back to
   raw transcripts for detail.
 - `found` and `decided` are the input of memex.
+
+### One skill, reader and writer
+
+```
+skills/log/
+  SKILL.md            reader: /log <question>, forked, on Sonnet
+  scripts/search.sh   read-only search: entries, daily files, then transcripts
+  scripts/hook.sh     plugin hook entry: SessionStart, SessionEnd, PreCompact
+  scripts/write.sh    writer: one entry for a transcript's unlogged lines
+  scripts/extract.sh  deterministic digest of a transcript part
+  scripts/sweep.sh    catch-up: every transcript idle an hour or more
+  scripts/logged-line.sh  last line already covered, per session
+  scripts/common.sh   shared paths
+  write-prompt.md     instructions for the writer's model run
+  schema.json         the entry the model fills
+```
+
+- **Triggers**: `SessionEnd` and `PreCompact` run `write.sh` detached, so the
+  session never waits. `SessionStart` starts `sweep.sh` when the last sweep is a
+  day old or more, for crashed or never-closed sessions. No cron: the plugin
+  carries all its triggers.
+- **Idempotent**: each run starts where the last stopped (`to_line` in the
+  entries, skipped parts in `~/.cache/recall/log/skipped/`), under a lock on
+  `~/log/.lock`. Re-running is harmless.
+- **Writer**: `extract.sh` builds the digest (prompts, replies, commits in the
+  session window across clones, issue links, memory notes written). Trivial parts
+  (fewer than 2 prompts, no commit) are skipped without a model call. A headless
+  Sonnet run with no tools fills `schema.json`; links absent from the digest are
+  dropped; the script renders the markdown and appends the JSON.
+- **No recursion**: the writer's own run sets `RECALL_LOG_WRITER`, and the hook
+  ignores sessions that carry it.
+- State (`~/.cache/recall/log/`: skipped parts, run log, last sweep) is never read
+  by people.
 
 ## memex
 
@@ -212,12 +246,20 @@ Open items per project in `TODO.md`: questions and actions for the user
 
 ## debrief
 
-Where things stand across all projects, read-only:
+Where things stand across all projects, read-only. `scripts/report.py` prints a
+fixed layout (empty sections hidden) so it reads the same every time; the model
+only adds a one-line "Where we are" from the log details.
 
-- `You` and `Now` items from every `TODO.md`;
-- running sessions and unpushed work;
-- recent log entries, with a one-line summary;
-- memex changes since the last debrief and pending consolidation proposals.
+- **Needs you**: `You` items from every `TODO.md` (questions first), issues
+  labelled `user`, and Claude auto memory folders holding notes to promote;
+- **Running now**: other live Claude sessions (tmux pane, lines not logged yet)
+  and clones with uncommitted or unpushed work;
+- **Log**: the latest N entries, or `last` (since the previous unfiltered
+  debrief, time kept in `~/.cache/recall/debrief/last-run`);
+- **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
+- with a filter, one project in full;
+- once built: memex changes since the last debrief, pending consolidation
+  proposals, stale notes.
 
 It shows what changed in memex, not memex content: content is what `find` is
 for.

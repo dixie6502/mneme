@@ -11,7 +11,7 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 | Plugin | Skills | Status |
 |---|---|---|
 | `todo` | todo | available |
-| `recall` | log, memex, note, debrief | planned |
+| `recall` | log, debrief (built); memex, note (planned) | available |
 
 ## Install
 
@@ -21,15 +21,16 @@ claude plugin install todo@mneme      # open items only
 claude plugin install recall@mneme    # the full system (pulls in todo)
 ```
 
-`recall` is not built yet. Do not enable `todo@mneme` next to another plugin that
-ships a `todo` skill: both would manage the same `TODO.md`.
+Do not enable `todo@mneme` next to another plugin that ships a `todo` skill: both
+would manage the same `TODO.md`. `recall` writes its log to `~/log` and its state to
+`~/.cache/recall/`; it expects clones at `~/<Host>/<owner>/<repo>`.
 
 ## Develop
 
 Load a plugin from the clone for one session, without installing it:
 
 ```
-claude --plugin-dir ./plugins/todo
+claude --plugin-dir ./plugins/todo --plugin-dir ./plugins/recall
 ```
 
 Check the manifests with `claude plugin validate .`.

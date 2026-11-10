@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skip", "topic", "done", "found", "decided"],
+  "properties": {
+    "skip": {
+      "type": "boolean",
+      "description": "true when nothing is worth logging: no change, finding or decision"
+    },
+    "topic": {
+      "type": "string",
+      "description": "short imperative summary of the session part, at most 60 characters"
+    },
+    "done": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "commits", "issues"],
+        "properties": {
+          "text": { "type": "string" },
+          "commits": { "type": "array", "items": { "type": "string" } },
+          "issues": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "found": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "issues", "memory"],
+        "properties": {
+          "text": { "type": "string" },
+          "issues": { "type": "array", "items": { "type": "string" } },
+          "memory": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "decided": { "type": "array", "items": { "type": "string" } }
+  }
+}

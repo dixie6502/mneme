@@ -9,6 +9,11 @@
       "name": "todo",
       "source": "./plugins/todo",
       "description": "Open items per project in a managed TODO.md."
+    },
+    {
+      "name": "recall",
+      "source": "./plugins/recall",
+      "description": "Session log that writes itself, log search, and a debrief of where things stand."
     }
   ]
 }

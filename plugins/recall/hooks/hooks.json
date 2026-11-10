@@ -1,0 +1,26 @@
+{
+  "description": "Writes the session log at session end and before compaction; runs the catch-up sweep at most once a day, at session start.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/log/scripts/hook.sh\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/log/scripts/hook.sh\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/log/scripts/hook.sh\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}
