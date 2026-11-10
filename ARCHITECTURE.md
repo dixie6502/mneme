@@ -122,6 +122,15 @@ skills/log/
   ignores sessions that carry it.
 - State (`~/.cache/recall/log/`: skipped parts, run log, last sweep) is never read
   by people.
+- **Why it writes itself**: a rule asking the agent to log fails silently when
+  forgotten or when a session crashes; transcripts are written by Claude Code and
+  are complete.
+- **Cost**: one small Sonnet call per entry, on the subscription (about $0.07
+  API-equivalent). No subagents: the digest of a long session fits one call; split
+  it only if a real transcript does not.
+- **Models**: `log`, `debrief` and the writer run on Sonnet: they summarise or
+  search, from a fresh context. The writer falls back to Haiku when Sonnet's
+  safeguards refuse a harmless session.
 
 ## memex
 
