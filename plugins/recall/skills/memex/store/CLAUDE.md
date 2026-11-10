@@ -11,5 +11,6 @@ with `/memex find`. Design: the mneme marketplace's `ARCHITECTURE.md`.
   owner never links to another owner. Global content never mentions an owner's
   private matters.
 - One entry per thing; basenames unique across the store (`[[wikilinks]]` by
-  basename). Rename or delete only with `wkref mv` / `wkref rm --root ~/memex`.
+  basename). Owner-layer entries are named `<owner>-<slug>.md`, so they never
+  collide with global or another owner's. Rename or delete only with `wkref mv` / `wkref rm --root ~/memex`.
 - `memex.sh check` passes before every commit. Local git only, no remote yet.

@@ -4,8 +4,8 @@ mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with two plugins.
 
-Status: `todo` and `recall`'s `log`, `debrief`, `note` and the `memex` skill are built;
-the memex writer (sweep) and consolidation (dream) are design, on hold.
+Status: everything is built except memex consolidation (the dream pass), which is on
+hold.
 See `README.md`.
 
 ## Model
@@ -53,8 +53,9 @@ enable a subset of a plugin's skills, hence two plugins).
 
 ### Interactions
 
-- **One write pipeline**: transcript → log entry → memex update. One script, one
-  lock, triggered by the `SessionEnd` / `PreCompact` hooks and a daily sweep.
+- **One write pipeline**: transcript → log entry → memex update. Log entries are
+  written at session end and compaction; the daily sweep logs what was missed, then
+  files the log's new facts into memex.
 - **One search backend**: `log` searches the log, then raw transcripts.
   `memex find` searches memex first, then calls the same backend.
 - **note → memex**: no direct path. A note's findings reach memex only through
@@ -151,12 +152,15 @@ directly by a session.
     <hostname>.md       one entry per host
   <owner>/              one folder per owner, named as in the clone path
     <owner>.md          #moc index
+    <owner>-<slug>.md   one entry per thing, prefixed with the owner
 ```
 
 - Two layers: **global** (the agent, its hosts, devices, tools; no project) and
   **owner** (one per owner, including the agent's own). No project layer:
   project knowledge belongs in the project's `CLAUDE.md` and docs.
 - Facts about a project sit in its owner folder and point to it in `## Paths`.
+- Owner entries are named `<owner>-<slug>`: basenames stay unique across the store
+  without any layer seeing another's names (global never names an owner).
 - Many small entries, one per thing; split one when it outgrows about a screen.
   One `#moc` index per layer, read first by `find`; an owner's index links up to
   `[[global]]`. No root index: it would link down into every owner.
@@ -217,12 +221,26 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 
 ### Writing
 
-- The sweep is the only writer, under `flock ~/memex/.lock`.
-- Source scope = target scope: log entries from an owner's repos feed only that
-  owner's folder.
-- Consolidation (the "dream" pass: dedupe, rewrite Facts from Log, link
-  orphans) starts in propose mode, as `You` items in `TODO.md`, and commits
-  directly once trusted.
+`scripts/file.sh` is the only writer, run at the end of the daily sweep under
+`flock ~/memex/.lock`. Once a day keeps model runs and commits few; until then
+`find` still sees a fresh `remember` through the log search.
+
+- **Source scope = target scope**: an entry's scope is its directory's owner; from
+  home or scratch, the single owner of the repos it committed to, else global. An
+  entry spanning several owners is not filed (reported in the run log).
+- **Which facts**: entries with `found`, `decided` or `remember`, past each scope's
+  progress marker (`~/.cache/recall/log/memex-filed/<scope>`). Global is filed
+  first, so owner layers can link to its new entries.
+- **Confined model run**: one headless Sonnet run per layer and batch of 25 items,
+  following `file-prompt.md`. Its working directory is the layer; it may edit only
+  there and read only there and in global, so other owners' layers stay out of
+  reach. Every `remember` is filed; other facts only if durable.
+- **Gate**: names, `wkref check` and upward links pass, and nothing changed
+  outside the layer. Pass: commit (local only). Fail: the attempt goes to `git
+  stash`, the scope retries next run, and `debrief` shows the failure.
+- Consolidation (the "dream" pass: dedupe, merge, link orphans) is not built: on
+  hold until the user says go. Planned in propose mode first (`You` items in
+  `TODO.md`).
 
 ### Several hosts
 
@@ -282,8 +300,8 @@ only adds a one-line "Where we are" from the log details.
   debrief, time kept in `~/.cache/recall/debrief/last-run`);
 - **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
 - with a filter, one project in full;
-- once memex is built: its changes since the last debrief and pending
-  consolidation proposals.
+- **Memex**: entries changed since the last debrief; failed filings under
+  "Needs you".
 
 It shows what changed in memex, not memex content: content is what `find` is
 for.

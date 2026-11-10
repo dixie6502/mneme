@@ -5,6 +5,7 @@
 #        memex.sh init [owner]         create the store, or one owner's layer
 #        memex.sh find <regex> [owner] matching entries in global and one owner
 #        memex.sh check                links, upward-only rule, dead paths, orphans
+#        memex.sh gate                 links and upward-only rule only (writer's gate)
 #
 # Scope: a directory under ~/<Host>/<owner>/<repo> belongs to <owner> (the layout
 # of clones); anything else (home, scratch) is global. find searches the scope of
@@ -55,13 +56,15 @@ write_index() {
   } >"$index"
 }
 
-# Creates the store (git repo, rules, global layer) and optionally an owner layer.
+# Creates the store (git repo, rules, global layer) and optionally an owner layer,
+# committing only the scaffold it created.
 init_store() {
   local owner="${1:-}"
   if [[ ! -d $MEMEX_DIR/.git ]]; then
     mkdir -p "$MEMEX_DIR"
     git -C "$MEMEX_DIR" init -q
   fi
+  local scaffold=(.wikijump CLAUDE.md .gitignore "$GLOBAL_LAYER/$GLOBAL_LAYER.md")
   touch "$MEMEX_DIR/.wikijump"
   [[ -f $MEMEX_DIR/CLAUDE.md ]] || cp "$SKILL_DIR/store/CLAUDE.md" "$MEMEX_DIR/CLAUDE.md"
   [[ -f $MEMEX_DIR/.gitignore ]] || printf '.lock\n' >"$MEMEX_DIR/.gitignore"
@@ -70,7 +73,11 @@ init_store() {
   if [[ -n $owner && $owner != "$GLOBAL_LAYER" ]]; then
     mkdir -p "$MEMEX_DIR/$owner"
     write_index "$owner"
+    scaffold+=("$owner/$owner.md")
   fi
+  git -C "$MEMEX_DIR" add -- "${scaffold[@]}"
+  git -C "$MEMEX_DIR" diff --cached --quiet ||
+    git -C "$MEMEX_DIR" commit -q -m "Set up memex layers: ${owner:-$GLOBAL_LAYER}"
   echo "$MEMEX_DIR"
 }
 
@@ -142,11 +149,34 @@ check_paths() {
   ((dead == 0))
 }
 
+# Reports owner-layer entries not named <owner>.md or <owner>-<slug>.md: the
+# prefix keeps basenames unique across layers without revealing other layers.
+check_names() {
+  local violations=0 entry layer name
+  while IFS= read -r -d '' entry; do
+    entry=${entry#"$MEMEX_DIR"/}
+    layer=${entry%%/*}
+    name=$(basename "$entry" .md)
+    [[ $layer == "$GLOBAL_LAYER" || $name == "$layer" || $name == "$layer"-* ]] && continue
+    echo "name without owner prefix: $entry"
+    violations=$((violations + 1))
+  done < <(find "$MEMEX_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0)
+  ((violations == 0))
+}
+
+# The writer's gate: names, links resolve and point upward. Dead paths do not block it.
+gate_store() {
+  require_store
+  check_names && wkref check --root "$MEMEX_DIR" && check_upward_links
+}
+
 check_store() {
   require_store
   local failed=0
   echo "## wkref check"
   wkref check --root "$MEMEX_DIR" || failed=1
+  echo "## names"
+  check_names || failed=1
   echo "## upward links"
   check_upward_links || failed=1
   echo "## paths"
@@ -167,8 +197,9 @@ main() {
       find_entries "$2" "${3:-}"
       ;;
     check) check_store ;;
+    gate) gate_store ;;
     *)
-      echo "usage: memex.sh scope|init|find|check" >&2
+      echo "usage: memex.sh scope|init|find|check|gate" >&2
       exit 64
       ;;
   esac

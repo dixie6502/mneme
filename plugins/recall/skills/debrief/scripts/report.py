@@ -27,6 +27,7 @@ LOG_ENTRIES = HOME / "log/entries.jsonl"
 LOGGED_LINE_SCRIPT = SKILLS_DIR / "log/scripts/logged-line.sh"
 NOTES_SCRIPT = SKILLS_DIR / "note/scripts/notes.sh"
 LAST_DEBRIEF_FILE = HOME / ".cache/recall/debrief/last-run"
+MEMEX_DIR = HOME / "memex"
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
 TODO_SECTIONS = ("You", "Now", "Next", "Later")
@@ -358,6 +359,35 @@ def render_stale_notes_line(project_filter: str) -> list[str]:
     return ["- Notes to convert or delete: " + " · ".join(parts)]
 
 
+def render_memex_changes() -> list[str]:
+    """Memex entries changed since the last unfiltered debrief (all, if none yet)."""
+    if not (MEMEX_DIR / ".git").exists():
+        return []
+    since = LAST_DEBRIEF_FILE.read_text().strip() if LAST_DEBRIEF_FILE.exists() else ""
+    command = ["git", "-C", str(MEMEX_DIR), "log", "--name-only", "--format="]
+    if since:
+        command.append(f"--since={since}")
+    changed = sorted(
+        {
+            path.removesuffix(".md")
+            for path in run(command).splitlines()
+            if path.endswith(".md") and "/" in path
+        }
+    )
+    entries = [path for path in changed if path.split("/")[0] != path.split("/")[1]]
+    return [f"- `{entry}`" for entry in entries]
+
+
+def render_memex_failures() -> list[str]:
+    """One line when filings into memex failed their check (attempts kept in stash)."""
+    if not (MEMEX_DIR / ".git").exists():
+        return []
+    count = len(run(["git", "-C", str(MEMEX_DIR), "stash", "list"]).splitlines())
+    if not count:
+        return []
+    return [f"- Memex: {count} failed filing(s) kept in `git -C ~/memex stash list`"]
+
+
 def render_project_line(project: Project) -> str:
     """Big-picture line: what's next, then counts."""
     now, upcoming = project.todo.get("Now", []), project.todo.get("Next", [])
@@ -447,7 +477,8 @@ def main() -> None:
         "Needs you",
         render_needs_you(projects)
         + render_memory_line(project_filter)
-        + render_stale_notes_line(project_filter),
+        + render_stale_notes_line(project_filter)
+        + ([] if project_filter else render_memex_failures()),
     )
     add_section("Running now", running)
     if entries or selection == "last":
@@ -456,6 +487,8 @@ def main() -> None:
             [line for entry in entries for line in render_entry(entry, is_in_full)]
             or ["- Nothing logged."],
         )
+    if not project_filter:
+        add_section("Memex (changed since the last debrief)", render_memex_changes())
     if is_in_full:
         for project in projects:
             report.extend(render_project_in_full(project))

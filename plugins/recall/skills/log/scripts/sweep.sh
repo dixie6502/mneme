@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Catch-up sweep: log transcripts that no SessionEnd / PreCompact hook logged
-# (crashed sessions, sessions left open). Only transcripts idle for an hour or
-# more. Started by hook.sh at session start, at most once a day.
+# (crashed sessions, sessions left open; only those idle for an hour or more),
+# then file the log's new facts into memex. Started by hook.sh at session start,
+# at most once a day.
 set -uo pipefail
 
 readonly IDLE_MINUTES=60
@@ -12,3 +13,5 @@ find "$HOME/.claude/projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' \
   while IFS= read -r -d '' transcript; do
     "$SCRIPT_DIR/write.sh" "$transcript" || echo "failed: $transcript" >&2
   done
+
+"$SCRIPT_DIR/../../memex/scripts/file.sh" || echo "memex: filing failed" >&2
