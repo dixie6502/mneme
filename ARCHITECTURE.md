@@ -4,7 +4,8 @@ mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with two plugins.
 
-Status: `todo` and `recall`'s `log`, `debrief` and `note` are built; `memex` is design.
+Status: `todo` and `recall`'s `log`, `debrief`, `note` and the `memex` skill are built;
+the memex writer (sweep) and consolidation (dream) are design, on hold.
 See `README.md`.
 
 ## Model
@@ -45,7 +46,7 @@ enable a subset of a plugin's skills, hence two plugins).
 | Skill | Answers | Writes | Reads | Invoked |
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
-| `memex` | what is true | `~/memex` (sweep only) | log | `find`, `remember`, `check` |
+| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check` |
 | `note` | what is being worked out | project `note/` | — | user only |
 | `todo` | what is left to do | `TODO.md` | — | `/todo`; when work leaves something open |
 | `debrief` | where things stand | nothing | all of the above, git, running sessions | `/debrief` |
@@ -142,10 +143,9 @@ directly by a session.
 ### Layout
 
 ```
-~/memex/                local git repo
+~/memex/                local git repo, created by the writer's first run
   .wikijump
   CLAUDE.md             rules of the store
-  memex.md              root #moc, links the layer indexes
   global/
     global.md           #moc index
     <hostname>.md       one entry per host
@@ -158,7 +158,8 @@ directly by a session.
   project knowledge belongs in the project's `CLAUDE.md` and docs.
 - Facts about a project sit in its owner folder and point to it in `## Paths`.
 - Many small entries, one per thing; split one when it outgrows about a screen.
-  One `#moc` index per layer, read first by `find`.
+  One `#moc` index per layer, read first by `find`; an owner's index links up to
+  `[[global]]`. No root index: it would link down into every owner.
 - Flat namespace: basenames unique across the store, so one
   `wkref check --root ~/memex` covers all layers.
 
@@ -201,10 +202,16 @@ The sweep appends to `## Log` and rewrites the summary and `## Facts` from it.
 
 ### Commands
 
+The skill is user-invoked only, forked, on Sonnet; `scripts/memex.sh` does the
+deterministic parts (`scope`, `init`, `find`, `check`).
+
 - `find <query>`: memex (current state), then the log (when, why), then raw
-  transcripts. Current scope only. Read-only.
-- `remember <fact>`: said in a session; flagged in the log entry (`remember`
-  field) and written by the sweep. States the inferred scope.
+  transcripts, through log's `search.sh`. Current scope only. Read-only.
+- `remember <fact>`: the invocation itself is the record. The log's `extract.sh`
+  copies the `/memex remember` arguments from the transcript into the digest, and
+  `write.sh` puts them in the entry's `remember` field verbatim (no model). A
+  session part holding one is never skipped. The skill only states the scope and
+  flags facts that belong elsewhere.
 - `check`: `wkref check`, the upward-link rule, dead paths under `## Paths`,
   orphans (information only).
 
