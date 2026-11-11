@@ -7,9 +7,9 @@ Usage: report.py [all] [last|N] [filter]
   N       the latest N log entries (default 3)
   filter  substring of a project scope (e.g. dixie6502/construct): that project in full
 
-Run inside a clone or scratch topic without `all` or a filter, it is local: the
-filter is the current scope (as memo defines it), and "Needs you" adds the global
-scope's questions and actions.
+Run inside a folder with a folio notebook without `all` or a filter, it is local:
+the filter is that notebook's key (`folio --dir`). Filters match case-insensitively,
+since folio lowercases repository keys.
 
 The report is markdown with a fixed layout; a section shows only when its data
 exists, so it works with any mix of the memo and memex plugins. Their files
@@ -22,6 +22,7 @@ summary line. Only side effect: an unfiltered run records its time for the next
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -40,11 +41,13 @@ DREAM_PROPOSALS = KNOWLEDGE_DIR / ".dream/proposals.json"
 RUN_LOG = HOME / ".cache/memex/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/memex/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
-# Data of the memo plugin: ~/memo/<scope>/TODO.md and note/*.md (a `created:`
-# frontmatter date, else the file's mtime, stale after 28 days), the sync log.
-MEMO_DIR = HOME / "memo"
+# Data of the memo plugin, kept in folio's notebooks: folders of the store holding
+# a .source record, each with its TODO.md, item details under todo/, and notes (a
+# `created:` frontmatter date, else the file's mtime, stale after 28 days); and
+# the store's sync log.
+MEMO_DIR = Path(os.environ.get("FOLIO_HOME", HOME / "memo"))
+NOTEBOOK_RECORD = ".source"
 MEMO_SYNC_LOG = HOME / ".cache/memo/sync.log"
-GLOBAL_SCOPE = "global"
 STALE_NOTE_DAYS = 28
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
@@ -81,47 +84,56 @@ def clone_paths(pattern: str) -> list[Path]:
     )
 
 
-def scope_of(directory: Path) -> str:
-    """memo's scope of a directory: owner/repo in a clone, scratch/<topic>, else global."""
-    home = HOME.resolve()
-    common = run(
-        [
-            "git",
-            "-C",
-            str(directory),
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-common-dir",
-        ]
-    ).strip()
-    if common:
-        clone = Path(common).parent
-        if clone.is_relative_to(home):
-            parts = clone.relative_to(home).parts
-            if len(parts) == 3 and parts[0] != "scratch":
-                return f"{parts[1]}/{parts[2]}"
-    directory = directory.resolve()
-    if directory.is_relative_to(home / "scratch"):
-        parts = directory.relative_to(home / "scratch").parts
-        if parts:
-            return f"scratch/{parts[0]}"
-    return GLOBAL_SCOPE
+def current_notebook_key() -> str:
+    """Key of the current folder's folio notebook (`folio --dir`), or "" if none."""
+    if not shutil.which("folio"):
+        return ""
+    notebook = run(["folio", "--dir"]).strip()
+    if not notebook:
+        return ""
+    try:
+        return str(Path(notebook).resolve().relative_to(MEMO_DIR.resolve()))
+    except ValueError:
+        return ""
 
 
-def memo_scopes(pattern: str) -> list[tuple[str, Path]]:
-    """(scope, path) for each match of a glob in the memo store, e.g. `*/*/TODO.md`."""
-    matches = [*MEMO_DIR.glob(pattern), *MEMO_DIR.glob(f"{GLOBAL_SCOPE}/{pattern[4:]}")]
+def is_listed(relative: Path) -> bool:
+    """False for paths folio leaves out: any part hidden (.*) or skipped (_*)."""
+    return not any(part.startswith((".", "_")) for part in relative.parts)
+
+
+def list_notebooks() -> list[tuple[str, Path]]:
+    """(key, folder) of every folio notebook in the store, sorted by key."""
+    if not MEMO_DIR.is_dir():
+        return []
     return sorted(
-        (str(path.relative_to(MEMO_DIR).parent), path)
-        for path in matches
-        if not path.relative_to(MEMO_DIR).parts[0].startswith(".")
+        (str(record.parent.relative_to(MEMO_DIR)), record.parent)
+        for record in MEMO_DIR.rglob(NOTEBOOK_RECORD)
+        if is_listed(record.parent.relative_to(MEMO_DIR))
     )
+
+
+def notebook_notes(notebook: Path) -> list[Path]:
+    """A notebook's notes: its markdown files but TODO.md and item details (todo/)."""
+    notes = []
+    for note in notebook.rglob("*.md"):
+        relative = note.relative_to(notebook)
+        if relative == Path("TODO.md") or relative.parts[0] == "todo":
+            continue
+        if is_listed(relative):
+            notes.append(note)
+    return notes
 
 
 def run(command: list[str]) -> str:
     """Run a command and return its stdout, or "" if it fails."""
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     return result.stdout if result.returncode == 0 else ""
+
+
+def matches(project_filter: str, name: str) -> bool:
+    """True when the filter is in the name, ignoring case (folio lowercases repos)."""
+    return project_filter.lower() in name.lower()
 
 
 def parse_arguments(arguments: list[str]) -> tuple[bool, str, str]:
@@ -175,20 +187,21 @@ def read_issues(repo: str) -> tuple[list[dict], bool]:
 
 
 def collect_projects(project_filter: str) -> list[Project]:
-    """Projects with a TODO.md in the memo store or a GitHub clone, matching the filter."""
+    """Projects with a TODO.md in a folio notebook or a GitHub clone, matching the filter."""
     projects: dict[str, Project] = {}
 
     def project_at(scope: str) -> Project:
         return projects.setdefault(scope, Project(scope))
 
-    for scope, todo_file in memo_scopes("*/*/TODO.md"):
-        if project_filter in scope:
-            project_at(scope).todo = read_todo(todo_file)
+    for key, notebook in list_notebooks():
+        todo_file = notebook / "TODO.md"
+        if todo_file.exists() and matches(project_filter, key):
+            project_at(key).todo = read_todo(todo_file)
     clones = [
-        str(git.parent.relative_to(HOME / "GitHub"))
+        str(git.parent.relative_to(HOME / "GitHub")).lower()  # as folio keys repos
         for git in clone_paths("GitHub/*/*/.git")
     ]
-    clones = [scope for scope in clones if project_filter in scope]
+    clones = [scope for scope in clones if matches(project_filter, scope)]
     with ThreadPoolExecutor() as pool:
         results = pool.map(read_issues, clones)
         for scope, (issues, is_unreadable) in zip(clones, results, strict=True):
@@ -196,14 +209,6 @@ def collect_projects(project_filter: str) -> list[Project]:
                 project_at(scope).issues = issues
                 project_at(scope).is_issues_unreadable = is_unreadable
     return sorted(projects.values(), key=lambda project: project.name)
-
-
-def read_global_project() -> list[Project]:
-    """The global scope's TODO.md, for "Needs you" in a local debrief."""
-    todo_file = MEMO_DIR / GLOBAL_SCOPE / "TODO.md"
-    if not todo_file.exists():
-        return []
-    return [Project(GLOBAL_SCOPE, todo=read_todo(todo_file))]
 
 
 def is_waiting_on_user(issue: dict) -> bool:
@@ -222,7 +227,7 @@ def read_log_entries(selection: str, project_filter: str) -> tuple[list[dict], s
         entries = [
             entry
             for entry in entries
-            if any(project_filter in repo for repo in entry_repos(entry))
+            if any(matches(project_filter, repo) for repo in entry_repos(entry))
         ]
     entries.sort(key=lambda entry: entry["end"])
     if selection == "last":
@@ -254,7 +259,7 @@ def collect_local_state(project_filter: str) -> list[str]:
     lines = []
     for git in clone_paths("*/*/*/.git"):
         path = str(git.parent.relative_to(HOME))
-        if project_filter not in path:
+        if not matches(project_filter, path):
             continue
         changed = len(
             run(["git", "-C", str(git.parent), "status", "--porcelain"]).splitlines()
@@ -316,7 +321,7 @@ def render_memory_line(project_filter: str) -> list[str]:
         directory = path_by_slug.get(memory.parent.name)
         name = str(directory.relative_to(HOME)) if directory else memory.parent.name
         name = name.removeprefix("GitHub/") if name != "." else "~"
-        if project_filter not in name:
+        if not matches(project_filter, name):
             continue
         oldest_days = int(
             (datetime.now().timestamp() - min(note.stat().st_mtime for note in notes))
@@ -350,12 +355,12 @@ def note_age_days(note: Path) -> int:
 
 
 def render_stale_notes_line(project_filter: str) -> list[str]:
-    """One line listing scopes with stale notes, to convert into docs or delete."""
+    """One line listing notebooks with stale notes, to convert into docs or delete."""
     parts = []
-    for name, note_dir in memo_scopes("*/*/note"):
-        if project_filter not in name:
+    for name, notebook in list_notebooks():
+        if not matches(project_filter, name):
             continue
-        ages = [note_age_days(note) for note in note_dir.glob("*.md")]
+        ages = [note_age_days(note) for note in notebook_notes(notebook)]
         stale = [age for age in ages if age > STALE_NOTE_DAYS]
         if stale:
             parts.append(f"`{name}` {len(stale)} (oldest {max(stale)} d)")
@@ -415,6 +420,18 @@ def render_knowledge_failures() -> list[str]:
         return []
     stash = "`git -C ~/knowledge stash list`"
     return [f"- Knowledge: {count} failed or interrupted write(s) kept in {stash}"]
+
+
+def render_folio_check_lines() -> list[str]:
+    """`folio check` findings (orphan, re-keyed, nested, stray), one line each."""
+    if not shutil.which("folio") or not MEMO_DIR.is_dir():
+        return []
+    result = subprocess.run(
+        ["folio", "check"], capture_output=True, text=True, check=False
+    )
+    if result.returncode == 0:
+        return []
+    return [f"- Folio: {line}" for line in result.stdout.splitlines() if line]
 
 
 def render_memo_sync_line() -> list[str]:
@@ -527,15 +544,14 @@ def render_entry(entry: dict, is_in_full: bool) -> list[str]:
 def main() -> None:
     """Gather everything, print the report and the context, record the run."""
     is_all, selection, project_filter = parse_arguments(sys.argv[1:])
-    current_scope = scope_of(Path.cwd())
-    is_local = not is_all and not project_filter and current_scope != GLOBAL_SCOPE
+    current_key = current_notebook_key()
+    is_local = not is_all and not project_filter and bool(current_key)
     if is_local:
-        project_filter = current_scope
+        project_filter = current_key
     run_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     projects = collect_projects(project_filter) or (
-        [Project(current_scope)] if is_local else []
+        [Project(current_key)] if is_local else []
     )
-    needs_you_projects = projects + (read_global_project() if is_local else [])
     entries, log_title = read_log_entries(selection, project_filter)
     running = ([] if project_filter else collect_live_sessions()) + collect_local_state(
         project_filter
@@ -551,9 +567,10 @@ def main() -> None:
 
     add_section(
         "Needs you",
-        render_needs_you(needs_you_projects)
+        render_needs_you(projects)
         + render_memory_line(project_filter)
         + render_stale_notes_line(project_filter)
+        + render_folio_check_lines()
         + render_memo_sync_line()
         + render_knowledge_failures()
         + render_dream_line()
