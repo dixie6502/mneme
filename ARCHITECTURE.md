@@ -2,10 +2,12 @@
 
 mneme is an information system for a Claude Code agent (dixie): what happened,
 what is true, what is being worked out, what is left to do, and where things
-stand. It ships as a Claude Code marketplace with two plugins.
+stand. It ships as a Claude Code marketplace with three plugins, none depending on
+another.
 
 Status: everything is built except memex consolidation (the dream pass), which is on
-hold.
+hold. Planned: `note` leaves `recall` to join `todo` in one workspace plugin (name
+not chosen yet).
 See `README.md`.
 
 ## Model
@@ -32,14 +34,16 @@ debrief              view across all of the above                   (read-only)
 
 ## Plugins
 
-| Plugin | Skills | Installed where |
-|---|---|---|
-| `todo` | todo | anywhere open items are tracked |
-| `recall` | log, memex, note, debrief; hooks and sweep | the agent's hosts |
+| Plugin | Job | Skills | Installed where |
+|---|---|---|---|
+| `todo` | workspace: what is left to do | todo | anywhere open items are tracked |
+| `recall` | memory: derived from transcripts | log, memex, note; hooks, sweep, backup | the agent's hosts |
+| `debrief` | overview of whatever data exists | debrief, sessions | anywhere |
 
-`recall` declares `todo` as a dependency, so installing `recall` installs both.
-A host that only tracks open items installs `todo` alone (Claude Code cannot
-enable a subset of a plugin's skills, hence two plugins).
+No plugin depends on another: each works alone, and the full system is all
+three. `debrief` reads the others' files when they exist; those formats are
+interfaces owned by their plugin (see debrief). Claude Code cannot enable a
+subset of a plugin's skills, hence one plugin per job.
 
 ## The family
 
@@ -49,7 +53,8 @@ enable a subset of a plugin's skills, hence two plugins).
 | `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check` |
 | `note` | what is being worked out | project `note/` | — | user only |
 | `todo` | what is left to do | `TODO.md` | — | `/todo`; when work leaves something open |
-| `debrief` | where things stand | nothing | all of the above, git, running sessions | `/debrief` |
+| `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
+| `sessions` | what runs now | nothing | live Claude sessions, tmux | `/sessions` |
 
 ### Interactions
 
@@ -61,7 +66,8 @@ enable a subset of a plugin's skills, hence two plugins).
 - **note → memex**: no direct path. A note's findings reach memex only through
   the log of the session that worked on it.
 - **log → todo**: log entries never hold next steps; open items go to `TODO.md`.
-- **memex → todo**: consolidation proposals land under `You` in `TODO.md`.
+- **memex → debrief**: consolidation proposals stay in memex; debrief lists them
+  under "Needs you". memex writes no `TODO.md`: its global layer has no project.
 - **todo is independent**: it knows none of the other skills and works alone.
   An item links a note only when the user names an existing one.
 - **note → debrief**: stale notes are listed under "Needs you" (convert or
@@ -240,8 +246,8 @@ deterministic parts (`scope`, `init`, `find`, `check`).
   outside the layer. Pass: commit (local only). Fail: the attempt goes to `git
   stash`, the scope retries next run, and `debrief` shows the failure.
 - Consolidation (the "dream" pass: dedupe, merge, link orphans) is not built: on
-  hold until the user says go. Planned in propose mode first (`You` items in
-  `TODO.md`).
+  hold until the user says go. Planned in propose mode first: proposals kept in
+  memex, listed by `debrief`.
 
 ### Several hosts
 
@@ -288,25 +294,44 @@ Open items per project in `TODO.md`: questions and actions for the user
 
 ## debrief
 
-Where things stand across all projects, read-only. `scripts/report.py` prints a
-fixed layout (empty sections hidden) so it reads the same every time; the model
-only adds a one-line "Where we are" from the log details.
+Its own plugin, read-only, depending on nothing: it reports from whatever data
+exists, so it works with any mix of the other plugins. A section shows only when
+its data does.
+
+### debrief: where things stand
+
+`scripts/report.py` prints a fixed layout so it reads the same every time; the
+model only adds a one-line "Where we are" from the log details (skipped when the
+machine has no log).
 
 - **Needs you**: `You` items from every `TODO.md` (questions first), issues
-  labelled `user`, Claude auto memory folders holding notes to promote,
-  projects with stale notes, and a backup that is unconfigured or more than two
-  days old;
-- **Running now**: other live Claude sessions (tmux pane, lines not logged yet)
-  and clones with uncommitted or unpushed work;
+  labelled `user`, Claude auto memory folders holding notes to promote, projects
+  with stale notes, failed memex filings, and, where the log runs, a backup that
+  is unconfigured or more than two days old;
+- **Running now**: a count of the other live Claude sessions (details:
+  `/sessions`) and clones with uncommitted or unpushed work;
 - **Log**: the latest N entries, or `last` (since the previous unfiltered
-  debrief, time kept in `~/.cache/recall/debrief/last-run`);
+  debrief, time kept in `~/.cache/debrief/last-run`);
+- **Memex**: entries changed since the last debrief (what changed, not content:
+  content is what `find` is for);
 - **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
-- with a filter, one project in full;
-- **Memex**: entries changed since the last debrief; failed filings under
-  "Needs you".
+- with a filter, one project in full.
 
-It shows what changed in memex, not memex content: content is what `find` is
-for.
+Interfaces it reads, each owned by its plugin: `TODO.md` (format of `todo`),
+`note/*.md` with a `created:` date, stale after 28 days (`note`),
+`~/log/entries.jsonl` (`schema.json` of `log`), `~/memex` git history and stash,
+and `~/.cache/recall/log/last-backup` (`recall`). A change to one of them
+changes debrief too.
+
+### sessions: what runs now
+
+`scripts/sessions.py` lists the live Claude sessions, interactive and
+background, from `claude agents --json` (else Claude Code's
+`~/.claude/sessions/<pid>.json`): folder, name, status, tmux pane (through the
+process tree), age, last activity, title (the user's `/rename`, else Claude's)
+and the latest recap ("while you were away"), from the transcript. Then the
+other tmux panes: id, foreground command, folder. A pane's screen is never read:
+it may hold secrets. `report.py` calls it with `--count` for its one line.
 
 ## Backup
 

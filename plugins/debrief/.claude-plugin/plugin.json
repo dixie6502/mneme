@@ -1,0 +1,9 @@
+{
+  "name": "debrief",
+  "description": "Where things stand across projects, from whatever data exists (TODO.md, notes, the log, memex, git), and the live Claude sessions and tmux panes.",
+  "author": {
+    "name": "dixie6502"
+  },
+  "repository": "https://github.com/dixie6502/mneme",
+  "license": "MIT"
+}

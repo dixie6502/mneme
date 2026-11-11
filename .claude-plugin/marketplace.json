@@ -13,7 +13,12 @@
     {
       "name": "recall",
       "source": "./plugins/recall",
-      "description": "Session log that writes itself, log search, and a debrief of where things stand."
+      "description": "Memory that writes itself: a session log from transcripts, memex facts, and an encrypted backup."
+    },
+    {
+      "name": "debrief",
+      "source": "./plugins/debrief",
+      "description": "Where things stand across projects, and the live sessions."
     }
   ]
 }

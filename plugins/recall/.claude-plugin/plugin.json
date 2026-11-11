@@ -1,8 +1,9 @@
 {
   "name": "recall",
-  "description": "An agent's information system: a session log that writes itself, log search, and a debrief of where things stand.",
-  "author": { "name": "dixie6502" },
+  "description": "Memory that writes itself: a session log from transcripts, log search, memex facts filed from the log, and an encrypted backup.",
+  "author": {
+    "name": "dixie6502"
+  },
   "repository": "https://github.com/dixie6502/mneme",
-  "license": "MIT",
-  "dependencies": ["todo"]
+  "license": "MIT"
 }

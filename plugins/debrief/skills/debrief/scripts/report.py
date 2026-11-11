@@ -6,9 +6,12 @@ Usage: report.py [last|N] [filter]
   N       the latest N log entries (default 3)
   filter  substring of a project path (e.g. dixie6502/construct): that project in full
 
-The report is markdown with a fixed layout; empty sections are hidden. After it, a
-context block gives the model the log details for its one summary line. Only side
-effect: an unfiltered run records its time for the next `last`.
+The report is markdown with a fixed layout; a section shows only when its data
+exists, so it works with any mix of the todo, note and recall plugins. Their files
+are read directly, as interfaces owned by those plugins (ARCHITECTURE.md > debrief).
+After the report, a context block gives the model the log details for its one
+summary line. Only side effect: an unfiltered run records its time for the next
+`last`.
 """
 
 import json
@@ -23,14 +26,17 @@ from pathlib import Path
 
 HOME = Path.home()
 SKILLS_DIR = Path(__file__).resolve().parents[2]
+SESSIONS_SCRIPT = SKILLS_DIR / "sessions/scripts/sessions.py"  # same plugin
+LAST_DEBRIEF_FILE = HOME / ".cache/debrief/last-run"
+# Data of the recall plugin, read when present: the log, memex, backup state.
 LOG_ENTRIES = HOME / "log/entries.jsonl"
-LOGGED_LINE_SCRIPT = SKILLS_DIR / "log/scripts/logged-line.sh"
-NOTES_SCRIPT = SKILLS_DIR / "note/scripts/notes.sh"
-LAST_DEBRIEF_FILE = HOME / ".cache/recall/debrief/last-run"
 MEMEX_DIR = HOME / "memex"
 RUN_LOG = HOME / ".cache/recall/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/recall/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
+# Data of the note plugin: note/*.md at a project root, a `created:` frontmatter
+# date (else the file's mtime), stale after 28 days.
+STALE_NOTE_DAYS = 28
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
 TODO_SECTIONS = ("You", "Now", "Next", "Later")
@@ -214,72 +220,9 @@ def collect_local_state(project_filter: str) -> list[str]:
     return lines
 
 
-def collect_live_sessions(project_filter: str) -> list[str]:
-    """One line per other running Claude session, with how much is not logged yet."""
-    panes = {}
-    for line in run(
-        [
-            "tmux",
-            "list-panes",
-            "-a",
-            "-F",
-            "#{pane_pid} #{session_name}:#{window_index}.#{pane_index}",
-        ]
-    ).splitlines():
-        pane_pid, pane = line.split(" ", 1)
-        panes[int(pane_pid)] = pane
-
-    def parent_of(pid: int) -> int:
-        return int(run(["ps", "-o", "ppid=", "-p", str(pid)]).strip() or 1)
-
-    def pane_of(pid: int) -> str:
-        while pid > 1:
-            if pid in panes:
-                return f"tmux {panes[pid]}"
-            pid = parent_of(pid)
-        return "no tmux"
-
-    own_claude = os.getppid()
-    while (
-        own_claude > 1
-        and run(["ps", "-o", "comm=", "-p", str(own_claude)]).strip() != "claude"
-    ):
-        own_claude = parent_of(own_claude)
-
-    lines = []
-    for pid_text in run(["pgrep", "-u", os.environ["USER"], "-x", "claude"]).split():
-        pid = int(pid_text)
-        if pid == own_claude:
-            continue
-        try:
-            cwd = os.readlink(f"/proc/{pid}/cwd").removeprefix(f"{HOME}/")
-        except OSError:
-            continue
-        if project_filter not in cwd:
-            continue
-        line = f"- `{cwd.removeprefix('GitHub/')}` · {pane_of(pid)}"
-        # Claude Code records each running process's session in ~/.claude/sessions/<pid>.json.
-        session_file = HOME / f".claude/sessions/{pid}.json"
-        session = (
-            json.loads(session_file.read_text()).get("sessionId", "")
-            if session_file.exists()
-            else ""
-        )
-        transcripts = (
-            list(HOME.glob(f".claude/projects/*/{session}.jsonl")) if session else []
-        )
-        if transcripts:
-            transcript = transcripts[0]
-            line_count = len(transcript.read_bytes().splitlines())
-            logged = int(run([str(LOGGED_LINE_SCRIPT), session]).strip() or 0)
-            idle_minutes = int(
-                (datetime.now().timestamp() - transcript.stat().st_mtime) / 60
-            )
-            line += f" · active {idle_minutes} min ago · {line_count - logged} lines not logged"
-        else:
-            line += " · session unknown"
-        lines.append(line)
-    return lines
+def collect_live_sessions() -> list[str]:
+    """One line counting the other live Claude sessions; details are in /sessions."""
+    return run([str(SESSIONS_SCRIPT), "--count"]).splitlines()
 
 
 def render_needs_you(projects: list[Project]) -> list[str]:
@@ -338,6 +281,24 @@ def render_memory_line(project_filter: str) -> list[str]:
     return ["- Memory to promote: " + " · ".join(parts)]
 
 
+def note_age_days(note: Path) -> int:
+    """Days since a note was created: its frontmatter `created:` date, else its mtime."""
+    lines = note.read_text(errors="replace").splitlines()
+    created = None
+    if lines and lines[0] == "---":
+        for line in lines[1:]:
+            if line == "---":
+                break
+            if line.startswith("created: "):
+                try:
+                    created = datetime.strptime(line.split()[1], "%Y-%m-%d")
+                except (IndexError, ValueError):
+                    pass
+                break
+    created = created or datetime.fromtimestamp(note.stat().st_mtime)
+    return int((datetime.now() - created).total_seconds() // SECONDS_PER_DAY)
+
+
 def render_stale_notes_line(project_filter: str) -> list[str]:
     """One line listing projects with stale notes, to convert into docs or delete."""
     roots = [
@@ -347,16 +308,12 @@ def render_stale_notes_line(project_filter: str) -> list[str]:
     parts = []
     for root in roots:
         name = str(root.relative_to(HOME)).removeprefix("GitHub/")
-        if project_filter not in name or not (root / "note").is_dir():
+        if project_filter not in name:
             continue
-        notes = [
-            line.split("\t")
-            for line in run([str(NOTES_SCRIPT), "list", str(root)]).splitlines()
-        ]
-        stale = [note for note in notes if note[3] == "stale"]
+        ages = [note_age_days(note) for note in (root / "note").glob("*.md")]
+        stale = [age for age in ages if age > STALE_NOTE_DAYS]
         if stale:
-            oldest_days = max(int(note[2]) for note in stale)
-            parts.append(f"`{name}` {len(stale)} (oldest {oldest_days} d)")
+            parts.append(f"`{name}` {len(stale)} (oldest {max(stale)} d)")
     if not parts:
         return []
     return ["- Notes to convert or delete: " + " · ".join(parts)]
@@ -392,7 +349,9 @@ def render_memex_failures() -> list[str]:
 
 
 def render_backup_line() -> list[str]:
-    """One line when the backup is not configured or its last success is too old."""
+    """One line when the log runs here and its backup is unconfigured or too old."""
+    if not LOG_ENTRIES.exists():
+        return []
     if not os.environ.get("RECALL_BACKUP_DIR"):
         return ["- Backup: not configured, transcripts exist only on this host"]
     see_log = f"see `~/{RUN_LOG.relative_to(HOME)}`"
@@ -480,7 +439,7 @@ def main() -> None:
     run_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     projects = collect_projects(project_filter)
     entries, log_title = read_log_entries(selection, project_filter)
-    running = collect_live_sessions(project_filter) + collect_local_state(
+    running = ([] if project_filter else collect_live_sessions()) + collect_local_state(
         project_filter
     )
     is_in_full = bool(project_filter)
@@ -500,7 +459,7 @@ def main() -> None:
         + ([] if project_filter else render_memex_failures() + render_backup_line()),
     )
     add_section("Running now", running)
-    if entries or selection == "last":
+    if LOG_ENTRIES.exists() and (entries or selection == "last"):
         add_section(
             f"Log ({log_title})",
             [line for entry in entries for line in render_entry(entry, is_in_full)]
@@ -518,6 +477,8 @@ def main() -> None:
 
     print("\n".join(report).rstrip())
     print(f"\n{CONTEXT_MARKER}")
+    if not LOG_ENTRIES.exists():
+        print("No log on this machine.")
     for entry in entries:
         print("\n".join(render_entry(entry, is_in_full=True)))
 
