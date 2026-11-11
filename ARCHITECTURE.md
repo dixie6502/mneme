@@ -56,8 +56,8 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
 | `knowledge` | what is known | `~/knowledge` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
-| `note` | what is being worked out | `~/memo/<key>/*.md` | — | user only |
-| `todo` | what is left to do | `~/memo/<key>/TODO.md` | — | `/todo`; when work leaves something open |
+| `note` | what is being worked out | `~/memo/<id>/*.md` | — | user only |
+| `todo` | what is left to do | `~/memo/<id>/TODO.md` | — | `/todo`; when work leaves something open |
 | `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
 | `sessions` | what runs now | nothing | live Claude sessions, tmux | `/sessions` |
 
@@ -109,8 +109,8 @@ sync, and the formats of `TODO.md` and notes.
 ```
 ~/memo/                       git repo, synced to a private remote
   .template/.wikijump         copied by folio into each new notebook
-  <owner>/<repo>/             a repository's notebook, keyed by its origin
-    .source                   folio's record: key, folder, origin
+  <owner>/<repo>/             a repository's notebook, identified by its origin
+    .source                   folio's record: id, folder, origin
     TODO.md
     todo/                     item detail files, deleted with their item
     <note>.md
@@ -118,7 +118,7 @@ sync, and the formats of `TODO.md` and notes.
 ```
 
 - **Notebook**: the current folder's, as `folio --dir` prints it: a repository's
-  is keyed by its origin (lowercased, any URL form), so every checkout shares it;
+  is identified by its origin (lowercased, any URL form), so every checkout shares it;
   another folder's by its path from `~`. There is no global notebook: a folder
   gets one with `folio init` (or `/todo init`, `/note`), and elsewhere the skills
   refuse.
@@ -392,13 +392,13 @@ into docs, which do not exist at first and are generated from the notes later.
 
 ## todo
 
-Open items per notebook in `~/memo/<key>/TODO.md`: questions and actions for the
+Open items per notebook in `~/memo/<id>/TODO.md`: questions and actions for the
 user (`You`), then `Now`, `Next`, `Later`. Format and check script live in the
 `memo` plugin. Done items are deleted; the log and the store's history record
 them.
 
 - Independent: installable and usable without `memex` or `debrief`.
-- Long item detail goes in a detail file under `~/memo/<key>/todo/`, linked from
+- Long item detail goes in a detail file under `~/memo/<id>/todo/`, linked from
   the item, and deleted with it.
 - When adding an item, the user may name an existing note to link. todo never
   creates or deletes a note.
@@ -503,7 +503,7 @@ From the previous layout, once per host, with the scripts in `migrate/`.
   in Claude Code's `env` settings, and `recall@mneme` replaced by `memex@mneme`.
 - `folio.sh [--dry-run]`, after installing folio: each scope folder of the
   memo store becomes a folio notebook: `note/*` moves up beside `TODO.md`, the
-  folder moves to its folio key when that differs, and `.source` is written.
-  Clashes and taken keys are skipped, reported. (The earlier move of `TODO.md`
+  folder moves to its folio id when that differs, and `.source` is written.
+  Clashes and taken ids are skipped, reported. (The earlier move of `TODO.md`
   and `note/` out of clones into `~/memo`, done once on the only host, is in git
   history: `migrate/memo.sh`.)

@@ -7,10 +7,10 @@
 # For each clone (~/<Host>/<owner>/<repo>) and scratch topic on this host whose
 # scope folder exists in the store:
 # - note/* moves up into the scope folder (todo/ stays: its links still hold);
-# - the folder moves to the folder's folio key when it differs (origin keys are
+# - the folder moves to the folder's folio id when it differs (origin ids are
 #   lowercased, and follow the origin rather than the clone path);
 # - the template's files are added where missing, and .source is written.
-# A name clash or a taken key skips that folder, reported. Scope folders with no
+# A name clash or a taken id skips that folder, reported. Scope folders with no
 # folder on this host (another host's, or `global`) are left for `folio check`.
 # Ends with a memo sync, which commits the store.
 set -euo pipefail
@@ -22,7 +22,7 @@ readonly FOLIO MEMO_SCRIPT
 is_dry_run=false
 [[ ${1:-} == --dry-run ]] && is_dry_run=true
 
-# folio's own key rule and record writer, so both tools agree.
+# folio's own id rule and record writer, so both tools agree.
 # shellcheck source=/dev/null
 source "$FOLIO"
 
@@ -83,21 +83,21 @@ migrate_folder() {
   old="$STORE/$scope"
   [[ -n $scope && -d $old ]] || return 0
   is_notebook "$old" && { say "already a notebook: $old"; return 0; }
-  if ! folder_key "$folder"; then
-    say "skipped $old: $KEY_ERROR"
+  if ! folder_id "$folder"; then
+    say "skipped $old: $ID_ERROR"
     return 0
   fi
-  target="$STORE/$KEY"
-  if [[ $KEY != "$scope" && -e $target ]]; then
-    say "skipped $old: its key $KEY is taken in the store"
+  target="$STORE/$ID"
+  if [[ $ID != "$scope" && -e $target ]]; then
+    say "skipped $old: its id $ID is taken in the store"
     return 0
   fi
   can_flatten "$old" || return 0
   flatten_notes "$old"
-  if [[ $KEY != "$scope" ]]; then
+  if [[ $ID != "$scope" ]]; then
     act mkdir -p "${target%/*}"
     act mv -- "$old" "$target"
-    say "moved $scope → $KEY"
+    say "moved $scope → $ID"
     if ! $is_dry_run && [[ $scope == */* ]]; then
       (cd "$STORE" && rmdir -p "${scope%/*}" 2>/dev/null) || true
     fi
@@ -110,11 +110,11 @@ migrate_folder() {
     done
   fi
   if $is_dry_run; then
-    echo "  would write: $target/$SOURCE_FILE (key=$KEY)"
+    echo "  would write: $target/$SOURCE_FILE (id=$ID)"
   else
     write_source "$target"
   fi
-  say "notebook $KEY ← ${folder/#"$HOME"/\~}"
+  say "notebook $ID ← ${folder/#"$HOME"/\~}"
 }
 
 main() {

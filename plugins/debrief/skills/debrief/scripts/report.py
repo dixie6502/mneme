@@ -8,8 +8,8 @@ Usage: report.py [all] [last|N] [filter]
   filter  substring of a project scope (e.g. dixie6502/construct): that project in full
 
 Run inside a folder with a folio notebook without `all` or a filter, it is local:
-the filter is that notebook's key (`folio --dir`). Filters match case-insensitively,
-since folio lowercases repository keys.
+the filter is that notebook's id (`folio --dir`). Filters match case-insensitively,
+since folio lowercases repository ids.
 
 The report is markdown with a fixed layout; a section shows only when its data
 exists, so it works with any mix of the memo and memex plugins. Their files
@@ -67,7 +67,7 @@ class TodoItem:
 
 @dataclass
 class Project:
-    """Everything known about one project, keyed by its memo scope (owner/repo, ...)."""
+    """Everything known about one project, keyed by its folio notebook id (owner/repo, ...)."""
 
     name: str
     todo: dict[str, list[TodoItem]] = field(default_factory=dict)
@@ -84,8 +84,8 @@ def clone_paths(pattern: str) -> list[Path]:
     )
 
 
-def current_notebook_key() -> str:
-    """Key of the current folder's folio notebook (`folio --dir`), or "" if none."""
+def current_notebook_id() -> str:
+    """Id of the current folder's folio notebook (`folio --dir`), or "" if none."""
     if not shutil.which("folio"):
         return ""
     notebook = run(["folio", "--dir"]).strip()
@@ -103,7 +103,7 @@ def is_listed(relative: Path) -> bool:
 
 
 def list_notebooks() -> list[tuple[str, Path]]:
-    """(key, folder) of every folio notebook in the store, sorted by key."""
+    """(id, folder) of every folio notebook in the store, sorted by id."""
     if not MEMO_DIR.is_dir():
         return []
     return sorted(
@@ -193,12 +193,12 @@ def collect_projects(project_filter: str) -> list[Project]:
     def project_at(scope: str) -> Project:
         return projects.setdefault(scope, Project(scope))
 
-    for key, notebook in list_notebooks():
+    for notebook_id, notebook in list_notebooks():
         todo_file = notebook / "TODO.md"
-        if todo_file.exists() and matches(project_filter, key):
-            project_at(key).todo = read_todo(todo_file)
+        if todo_file.exists() and matches(project_filter, notebook_id):
+            project_at(notebook_id).todo = read_todo(todo_file)
     clones = [
-        str(git.parent.relative_to(HOME / "GitHub")).lower()  # as folio keys repos
+        str(git.parent.relative_to(HOME / "GitHub")).lower()  # as folio ids repos
         for git in clone_paths("GitHub/*/*/.git")
     ]
     clones = [scope for scope in clones if matches(project_filter, scope)]
@@ -423,7 +423,7 @@ def render_knowledge_failures() -> list[str]:
 
 
 def render_folio_check_lines() -> list[str]:
-    """`folio check` findings (orphan, re-keyed, nested, stray), one line each."""
+    """`folio check` findings (orphan, changed id, nested, stray), one line each."""
     if not shutil.which("folio") or not MEMO_DIR.is_dir():
         return []
     result = subprocess.run(
@@ -544,13 +544,13 @@ def render_entry(entry: dict, is_in_full: bool) -> list[str]:
 def main() -> None:
     """Gather everything, print the report and the context, record the run."""
     is_all, selection, project_filter = parse_arguments(sys.argv[1:])
-    current_key = current_notebook_key()
-    is_local = not is_all and not project_filter and bool(current_key)
+    current_id = current_notebook_id()
+    is_local = not is_all and not project_filter and bool(current_id)
     if is_local:
-        project_filter = current_key
+        project_filter = current_id
     run_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     projects = collect_projects(project_filter) or (
-        [Project(current_key)] if is_local else []
+        [Project(current_id)] if is_local else []
     )
     entries, log_title = read_log_entries(selection, project_filter)
     running = ([] if project_filter else collect_live_sessions()) + collect_local_state(
