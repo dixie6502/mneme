@@ -28,6 +28,9 @@ LOGGED_LINE_SCRIPT = SKILLS_DIR / "log/scripts/logged-line.sh"
 NOTES_SCRIPT = SKILLS_DIR / "note/scripts/notes.sh"
 LAST_DEBRIEF_FILE = HOME / ".cache/recall/debrief/last-run"
 MEMEX_DIR = HOME / "memex"
+RUN_LOG = HOME / ".cache/recall/log/run.log"
+LAST_BACKUP_FILE = HOME / ".cache/recall/log/last-backup"
+BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
 TODO_SECTIONS = ("You", "Now", "Next", "Later")
@@ -388,6 +391,22 @@ def render_memex_failures() -> list[str]:
     return [f"- Memex: {count} failed filing(s) kept in `git -C ~/memex stash list`"]
 
 
+def render_backup_line() -> list[str]:
+    """One line when the backup is not configured or its last success is too old."""
+    if not os.environ.get("RECALL_BACKUP_DIR"):
+        return ["- Backup: not configured, transcripts exist only on this host"]
+    see_log = f"see `~/{RUN_LOG.relative_to(HOME)}`"
+    if not LAST_BACKUP_FILE.exists():
+        return [f"- Backup: no success yet, {see_log}"]
+    age_days = int(
+        (datetime.now().timestamp() - LAST_BACKUP_FILE.stat().st_mtime)
+        / SECONDS_PER_DAY
+    )
+    if age_days < BACKUP_MAX_AGE_DAYS:
+        return []
+    return [f"- Backup: last success {age_days} d ago, {see_log}"]
+
+
 def render_project_line(project: Project) -> str:
     """Big-picture line: what's next, then counts."""
     now, upcoming = project.todo.get("Now", []), project.todo.get("Next", [])
@@ -478,7 +497,7 @@ def main() -> None:
         render_needs_you(projects)
         + render_memory_line(project_filter)
         + render_stale_notes_line(project_filter)
-        + ([] if project_filter else render_memex_failures()),
+        + ([] if project_filter else render_memex_failures() + render_backup_line()),
     )
     add_section("Running now", running)
     if entries or selection == "last":

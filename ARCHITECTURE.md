@@ -54,8 +54,8 @@ enable a subset of a plugin's skills, hence two plugins).
 ### Interactions
 
 - **One write pipeline**: transcript → log entry → memex update. Log entries are
-  written at session end and compaction; the daily sweep logs what was missed, then
-  files the log's new facts into memex.
+  written at session end and compaction; the daily sweep logs what was missed,
+  files the log's new facts into memex, then backs everything up (see Backup).
 - **One search backend**: `log` searches the log, then raw transcripts.
   `memex find` searches memex first, then calls the same backend.
 - **note → memex**: no direct path. A note's findings reach memex only through
@@ -88,7 +88,7 @@ missed.
 - Entry fields: `topic`, `done` (with commits, issues), `found` (non-obvious
   facts), `decided` (decision and reason). No next steps.
 - Stored in `~/log`: `entries.jsonl` plus one markdown file per day. Local to the
-  host, not versioned.
+  host, not versioned; backed up encrypted (see Backup).
 - `log` answers "when did we…", "why did we…" from the entries, falling back to
   raw transcripts for detail.
 - `found` and `decided` are the input of memex.
@@ -103,6 +103,7 @@ skills/log/
   scripts/write.sh    writer: one entry for a transcript's unlogged lines
   scripts/extract.sh  deterministic digest of a transcript part
   scripts/sweep.sh    catch-up: every transcript idle an hour or more
+  scripts/backup.sh   encrypted backup of transcripts, log and memex
   scripts/logged-line.sh  last line already covered, per session
   scripts/common.sh   shared paths
   write-prompt.md     instructions for the writer's model run
@@ -292,8 +293,9 @@ fixed layout (empty sections hidden) so it reads the same every time; the model
 only adds a one-line "Where we are" from the log details.
 
 - **Needs you**: `You` items from every `TODO.md` (questions first), issues
-  labelled `user`, Claude auto memory folders holding notes to promote, and
-  projects with stale notes;
+  labelled `user`, Claude auto memory folders holding notes to promote,
+  projects with stale notes, and a backup that is unconfigured or more than two
+  days old;
 - **Running now**: other live Claude sessions (tmux pane, lines not logged yet)
   and clones with uncommitted or unpushed work;
 - **Log**: the latest N entries, or `last` (since the previous unfiltered
@@ -306,8 +308,39 @@ only adds a one-line "Where we are" from the log details.
 It shows what changed in memex, not memex content: content is what `find` is
 for.
 
-## Open points
+## Backup
 
-- Transcripts are the raw source but are local to each host, unbacked, and kept
-  365 days by default (`cleanupPeriodDays`). They need an encrypted backup and
-  longer retention; notes depend on it too.
+Transcripts are the only source of truth and live on one host. The log and memex
+can be rebuilt from them, but only through model runs, and not identically. The
+sweep backs up all three, encrypted, after filing memex.
+
+- **What**: `~/.claude/projects` (transcripts, subagent runs, auto memory),
+  `~/log`, and `~/memex` with its git history. Notes are not backed up: they are
+  fleeting, and their content is in the transcripts.
+- **How**: `log/scripts/backup.sh` packs the files changed since the last success
+  (by ctime), compresses them with `zstd` and encrypts them with `age`, on the
+  host. The archive is committed to a git clone as `<host>/<UTC time>.tar.zst.age`
+  and pushed. Outside the host only dates and sizes are visible: paths, which name
+  clients, are inside the encryption.
+- **Keys**: the host holds public keys only; the private key stays with the user,
+  off the host. A compromised host cannot read past archives. Losing the private
+  key loses the backup.
+- **Configuration**: `RECALL_BACKUP_DIR` (the clone) and
+  `RECALL_BACKUP_RECIPIENTS` (an age recipients file: `age1…` or `ssh-ed25519`
+  lines), set in Claude Code's `env` settings so hooks see them. Unset: no backup,
+  and `debrief` says so.
+- **Incremental**: a transcript still growing is packed again in full each day;
+  compression keeps that cheap (62 MB of transcripts → 5 MB).
+- **Failures**: the marker `~/.cache/recall/log/last-backup` advances only after a
+  push, so a failed run is retried whole the next day. Errors go to the run log;
+  `debrief` flags a last success more than two days old.
+- **Retention**: transcripts are deleted after Claude Code's `cleanupPeriodDays`;
+  set it high (years), since memex and `/log` reach back to them.
+- **Restore**, oldest archive first (names sort by time):
+
+  ```
+  cd <clone>/<host>
+  for archive in *.tar.zst.age; do
+    age -d -i <private key file> "$archive" | zstd -d | tar -x -C ~
+  done
+  ```

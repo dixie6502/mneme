@@ -25,6 +25,11 @@ Do not enable `todo@mneme` next to another plugin that ships a `todo` skill: bot
 would manage the same `TODO.md`. `recall` writes its log to `~/log` and its state to
 `~/.cache/recall/`; it expects clones at `~/<Host>/<owner>/<repo>`.
 
+Backup (optional, needs `age` and `zstd`): set `RECALL_BACKUP_DIR` (a git clone to
+push encrypted archives to) and `RECALL_BACKUP_RECIPIENTS` (an age recipients file
+holding public keys only) in the `env` of your Claude Code settings. Design and
+restore: `ARCHITECTURE.md` › Backup.
+
 ## Develop
 
 Load a plugin from the clone for one session, without installing it:
