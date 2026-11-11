@@ -226,9 +226,9 @@ deterministic parts (`scope`, `init`, `find`, `check`).
   flags facts that belong elsewhere.
 - `check`: `wkref check`, the upward-link rule, dead paths under `## Paths`,
   orphans (information only).
-- `dream [owner]`: the dream proposals of the scope and global (see Dream);
-  `apply <ids>` and `reject <ids>`: the user's decision on them; `retire <entry>`:
-  the user removes an obsolete entry directly.
+- `dream [owner]`: the dream proposals of the scope and global, and the track
+  record (see Dream); `apply <ids> [why]` and `reject <ids> [why]`: the user's
+  decision on them; `retire <entry>`: the user removes an obsolete entry directly.
 
 ### Writing
 
@@ -263,10 +263,11 @@ Nothing in an entry changes until the user approves a proposal.
   reads the layer (and global, for links) and returns at most 5 proposals: `merge`,
   `split`, `link`, `update` (summary or facts contradicting the entry's own log),
   `index`, `retire` (an entry whose subject no longer exists). Hints computed by the script: orphans, entries over about a screen.
-  Proposals the user declined are passed back, so they are never repeated.
+  Each proposal carries the model's confidence (high, medium, low).
 - **Store**: `~/memex/.dream/proposals.json`, committed with the store: id, layer,
-  kind, entries, `into` (merges), a one-line summary, the precise change, and the
-  status (`open`, `approved`, `applied`, `skipped`, `failed`, `rejected`).
+  kind, entries, `into` (merges), a one-line summary, the precise change, the
+  confidence, the status (`open`, `approved`, `applied`, `skipped`, `failed`,
+  `rejected`), and the user's `decision`, its date and optional `note`.
 - **Decide**: `/memex dream` lists the scope's proposals; `/memex apply <ids>` or
   `/memex reject <ids>` is the user's decision, and the only trigger for a change.
   `/memex retire <entry>` records an approved retirement the user asks for directly.
@@ -279,6 +280,14 @@ Nothing in an entry changes until the user approves a proposal.
   from `Related:` lists, turns other mentions into plain text, and removes the file. Then the writers' gate: pass, commit; fail, `git stash` and the proposals
   turn `failed`, to approve again or reject. A proposal that no longer fits is
   `skipped` with its reason.
+- **Learning**: every decision is recorded against the model's confidence. The
+  next dream of a layer sees that layer's and global's decisions in full (never
+  repeating a declined one, learning from the user's notes) and a content-free
+  track record across all layers: approvals per kind and confidence.
+- **Toward unattended**: approval is required for every kind for now. `/memex
+  dream` shows the track record and flags a kind as ready once it has 10 decisions
+  with 90% approved; letting that kind apply without approval is then the user's
+  call, a small change to `dream.sh`.
 - Models: Sonnet, then Haiku when Sonnet's safeguards refuse a layer.
 - A retired entry's history stays in the log, the transcripts and memex's git
   history; whatever still matters is merged instead.

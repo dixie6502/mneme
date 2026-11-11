@@ -1,7 +1,7 @@
 ---
 name: memex
 description: dixie's persistent memory of facts inferred from the session log, by scope (global, and one layer per owner). User-invoked only. Argument - `find <query>` (what do we know about…), `remember <fact>` (record a fact for memex), `check`, `dream [owner]` (consolidation proposals), `apply <ids>`, `reject <ids>`, or `retire <entry>` (remove an obsolete entry).
-argument-hint: "find <query> | remember <fact> | check | dream [owner] | apply <ids> | reject <ids> | retire <entry>"
+argument-hint: "find <query> | remember <fact> | check | dream [owner] | apply <ids> [why] | reject <ids> [why] | retire <entry>"
 disable-model-invocation: true
 context: fork
 model: sonnet
@@ -61,11 +61,12 @@ retire); nothing changes until the user approves one.
 current scope (or of the owner the user named) and global, with what each changes.
 Show the output as printed.
 
-## apply <ids> / reject <ids>
+## apply <ids> [why] / reject <ids> [why]
 
-The user's decision on proposals, by id. Run
-`${CLAUDE_SKILL_DIR}/scripts/memex.sh apply <ids>` or `... reject <ids>` with exactly
-the ids the user gave, and relay the output. Never apply or reject on your own
+The user's decision on proposals, by id, with an optional reason. Run
+`${CLAUDE_SKILL_DIR}/scripts/memex.sh apply <ids> [why]` or `... reject <ids> [why]`
+with exactly the ids and words the user gave, and relay the output. Each decision is
+recorded against the dream's confidence; the history and reasons tune later dreams. Never apply or reject on your own
 judgment, and never pick ids the user did not name. Applying runs in the background:
 `/memex dream` shows the outcome a minute or two later.
 

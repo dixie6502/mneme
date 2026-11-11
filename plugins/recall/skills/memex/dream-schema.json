@@ -33,13 +33,22 @@
           },
           "change": {
             "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
           }
         },
         "required": [
           "kind",
           "entries",
           "summary",
-          "change"
+          "change",
+          "confidence"
         ],
         "additionalProperties": false
       }

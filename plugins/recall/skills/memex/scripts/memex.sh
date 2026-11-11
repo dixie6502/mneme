@@ -7,8 +7,8 @@
 #        memex.sh check                links, upward-only rule, dead paths, orphans
 #        memex.sh gate                 links and upward-only rule only (writer's gate)
 #        memex.sh dream [owner]        dream proposals of the scope (dream.sh list)
-#        memex.sh apply <id>...        approve proposals: applied in the background
-#        memex.sh reject <id>...       decline proposals
+#        memex.sh apply <id>... [why]  approve proposals: applied in the background
+#        memex.sh reject <id>... [why] decline proposals; the reason tunes later dreams
 #        memex.sh retire <entry>...    retire entries the user names (no proposal needed)
 #
 # Scope: a directory under ~/<Host>/<owner>/<repo> belongs to <owner> (the layout

@@ -9,8 +9,11 @@
 # Usage: dream.sh propose            each layer changed since its last dream and with
 #                                    no proposal pending (run by the sweep)
 #        dream.sh list [owner]       proposals of the current scope (or owner) and global
-#        dream.sh approve <id>...    approve proposals, then apply them in the background
-#        dream.sh reject <id>...     decline proposals: never proposed again
+#        dream.sh approve <id>... [reason]  approve, then apply in the background
+#        dream.sh reject <id>... [reason]   decline: never proposed again
+#
+# Each decision is recorded against the model's confidence; the history tunes later
+# dreams, and the track record shows when a kind could run unattended.
 #        dream.sh retire <entry>...  retire entries the user names, at once
 #        dream.sh apply              apply every approved proposal (the background job)
 # Exit codes: 0 ok, 1 failure, 64 usage.
@@ -29,13 +32,34 @@ readonly PROPOSALS_PATH=.dream/proposals.json      # relative to the store
 readonly PROPOSALS="$MEMEX_DIR/$PROPOSALS_PATH"
 readonly DREAMED_DIR="$STATE_DIR/memex-dreamed"    # per layer: its last commit dreamed
 readonly MAX_PROPOSALS_PER_LAYER=5
-readonly MAX_REJECTED_SHOWN=20                     # declined proposals the model sees
+readonly MAX_HISTORY_SHOWN=30                      # past decisions the model sees
+readonly MIN_DECISIONS_UNATTENDED=10               # a kind is ready to run unattended
+readonly MIN_AGREEMENT_PERCENT=90                  # ... with this share approved
 readonly LONG_ENTRY_LINES=80                       # about a screen
 readonly RECENT_DAYS=7                             # applied or skipped, still listed
 readonly LOCK_WAIT_SECONDS=30                      # for the user's approve and reject
 readonly PENDING='["open", "approved", "failed"]'  # a layer with these is not dreamed
 # Sonnet's safeguards refuse some harmless security-adjacent content; Haiku's do not.
 readonly MODELS=(sonnet haiku)
+
+# jq definitions over the proposals file: the user's decisions and their track record.
+# decision: approved, rejected, or null (pending, or a retirement the user asked for,
+# which was no recommendation). track_record: per kind, decisions and approvals, also
+# by the model's confidence. Counts only: no content, so it may cross layers.
+readonly DECISIONS_JQ='
+  def decision:
+    if .source == "user" then null
+    else .decision // (if .status == "rejected" then "rejected"
+      elif (.status | IN("approved", "applied", "skipped", "failed")) then "approved"
+      else null end) end;
+  def approvals: map(select(.decision == "approved")) | length;
+  def track_record:
+    [.proposals[] | {kind, confidence: (.confidence // "unrated"), decision: decision}
+      | select(.decision != null)]
+    | group_by(.kind)
+    | map({kind: .[0].kind, decided: length, approved: approvals,
+        by_confidence: (group_by(.confidence)
+          | map({confidence: .[0].confidence, decided: length, approved: approvals}))});'
 
 fail() { echo "memex dream: $1" >&2; exit 1; }
 today() { date +%F; }
@@ -133,7 +157,7 @@ propose() {
   lock_store
   require_clean_store
   mkdir -p "$DREAMED_DIR"
-  local layer head proposals pending rejected input output valid count
+  local layer head proposals pending history record input output valid count
   while IFS= read -r layer; do
     head=$(git -C "$MEMEX_DIR" log -1 --format=%H -- "$layer")
     [[ -n $head && $(cat "$DREAMED_DIR/$layer" 2>/dev/null) != "$head" ]] || continue
@@ -142,14 +166,19 @@ propose() {
       '[.proposals[] | select(.layer == $layer and (.status | IN($pending[])))] | length' \
       <<<"$proposals")
     ((pending == 0)) || continue
-    rejected=$(jq -c --arg layer "$layer" --argjson max "$MAX_REJECTED_SHOWN" \
-      '[.proposals[] | select(.layer == $layer and .status == "rejected")
-        | {kind, entries, summary}] | .[-$max:]' <<<"$proposals")
+    # The user's past decisions: this layer's and global's in full, others as counts.
+    history=$(jq -c --arg layer "$layer" --argjson max "$MAX_HISTORY_SHOWN" "$DECISIONS_JQ"'
+      [.proposals[] | select(.layer == $layer or .layer == "global")
+        | select(decision != null)
+        | {kind, entries, summary, confidence, decision: decision, note}] | .[-$max:]' \
+      <<<"$proposals")
+    record=$(jq -c "$DECISIONS_JQ track_record" <<<"$proposals")
     input=$(jq -n -c --arg layer "$layer" --arg today "$(today)" \
       --argjson own "$(layer_entries "$layer")" --argjson global "$(layer_entries global)" \
-      --argjson hints "$(layer_hints "$layer")" --argjson rejected "$rejected" \
+      --argjson hints "$(layer_hints "$layer")" --argjson history "$history" \
+      --argjson record "$record" \
       '{layer: $layer, today: $today, entries: {($layer): $own, global: $global},
-        hints: $hints, rejected: $rejected}')
+        hints: $hints, history: $history, track_record: $record}')
     output=$(ask_model read "$layer" "$SKILL_DIR/dream-prompt.md" \
       "$SKILL_DIR/dream-schema.json" "$input")
     if [[ $output == null ]]; then
@@ -185,11 +214,14 @@ list() {
   local scope=${1:-$("$MEMEX_SCRIPT" scope)}
   [[ -f $PROPOSALS ]] || { echo "No dream proposals yet."; return 0; }
   jq -r --arg scope "$scope" --arg days "$RECENT_DAYS" \
-    --arg since "$(date -d "-$RECENT_DAYS days" +%F)" '
-    def line: "- \(.id) · \(.layer) · \(.kind): \(.entries | join(", "))"
-      + (if .into then " → \(.into)" else "" end)
+    --arg since "$(date -d "-$RECENT_DAYS days" +%F)" \
+    --argjson min "$MIN_DECISIONS_UNATTENDED" --argjson percent "$MIN_AGREEMENT_PERCENT" \
+    "$DECISIONS_JQ"'
+    def line: "- \(.id) · \(.layer) · \(.kind) (\(.confidence // "unrated") confidence): "
+      + (.entries | join(", ")) + (if .into then " → \(.into)" else "" end)
       + "\n  \(.summary)\n  Change: \(.change)";
-    [.proposals[] | select(.layer == "global" or .layer == $scope)] as $shown
+    track_record as $record
+    | [.proposals[] | select(.layer == "global" or .layer == $scope)] as $shown
     | ($shown | map(select(.status == "open"))) as $open
     | ($shown | map(select(.status == "approved"))) as $approved
     | ($shown | map(select(.status == "failed"))) as $failed
@@ -211,35 +243,57 @@ list() {
        then "\nDone in the last \($days) days:",
          ($recent[] | "- \(.id) · \(.layer) · \(.status)"
            + (if .reason then " (\(.reason))" else "" end) + ": \(.summary)")
+       else empty end),
+      (if ($record | length) > 0
+       then "\nTrack record (your decisions on dream proposals, all layers):",
+         ($record[] | "- \(.kind): \(.approved) of \(.decided) approved ("
+           + (.by_confidence | map("\(.confidence) \(.approved)/\(.decided)") | join(", "))
+           + ")" + (if .decided >= $min and .approved * 100 >= .decided * $percent
+             then ": ready to run unattended" else "" end)),
+         "A kind is ready at \($min) decisions with \($percent)% approved; running it unattended stays your call."
        else empty end)' "$PROPOSALS"
 }
 
-# Sets the status of proposals the user decided on; prints the updated proposals.
-# Usage: decide <status> <allowed current statuses, JSON> <id>...
+# Prints the leading arguments that are proposal ids, space-separated.
+leading_ids() {
+  local ids=()
+  while (($#)) && [[ $1 =~ ^[0-9]+$ ]]; do ids+=("$1"); shift; done
+  echo "${ids[*]}"
+}
+
+# Records the user's decision on proposals, with the reason after the ids if any;
+# prints the updated proposals.
+# Usage: decide approved|rejected <allowed current statuses, JSON> <id>... [reason]
 decide() {
-  local status=$1 allowed=$2 ids missing proposals
+  local status=$1 allowed=$2 id_list note ids missing proposals
   shift 2
-  ids=$(printf '%s\n' "$@" | jq -R 'tonumber? // error("not a proposal id: \(.)")' |
-    jq -s -c .) || exit 64
+  id_list=$(leading_ids "$@")
+  [[ -n $id_list ]] || { echo "usage: dream.sh approve|reject <id>... [reason]" >&2; exit 64; }
+  read -ra id_args <<<"$id_list"
+  shift "${#id_args[@]}"
+  note="$*"
+  ids=$(printf '%s\n' "${id_args[@]}" | jq -R tonumber | jq -s -c .)
   proposals=$(read_proposals)
   missing=$(jq -r --argjson ids "$ids" --argjson allowed "$allowed" \
     '$ids - [.proposals[] | select(.status | IN($allowed[])) | .id]
      | map(tostring) | join(", ")' <<<"$proposals")
   [[ -z $missing ]] || fail "no proposal $missing waiting for a decision"
-  jq --argjson ids "$ids" --arg status "$status" --arg today "$(today)" \
+  jq --argjson ids "$ids" --arg status "$status" --arg today "$(today)" --arg note "$note" \
     '.proposals |= map(if (.id | IN($ids[]))
-       then .status = $status | .updated = $today | del(.reason) else . end)' \
-    <<<"$proposals"
+       then .status = $status | .decision = $status | .decided = $today
+         | .updated = $today | del(.reason)
+         | (if $note == "" then . else .note = $note end)
+       else . end)' <<<"$proposals"
 }
 
 approve() {
-  (($#)) || { echo "usage: dream.sh approve <id>..." >&2; exit 64; }
   lock_store --briefly
-  local updated
+  local updated ids
   updated=$(decide approved '["open", "failed"]' "$@")
-  commit_proposals "Approve dream proposals $* ($(stamp))" <<<"$updated"
+  ids=$(leading_ids "$@")
+  commit_proposals "Approve dream proposals $ids ($(stamp))" <<<"$updated"
   apply_in_background
-  echo "Applying proposal(s) $* in the background: \`/memex dream\` shows the result in a minute or two."
+  echo "Applying proposal(s) $ids in the background: \`/memex dream\` shows the result in a minute or two."
 }
 
 # Starts the apply job; it takes the lock itself, once this command has released it.
@@ -273,12 +327,12 @@ retire() {
 }
 
 reject() {
-  (($#)) || { echo "usage: dream.sh reject <id>..." >&2; exit 64; }
   lock_store --briefly
-  local updated
+  local updated ids
   updated=$(decide rejected '["open", "failed"]' "$@")
-  commit_proposals "Decline dream proposals $* ($(stamp))" <<<"$updated"
-  echo "Declined proposal(s) $*: they will not be proposed again."
+  ids=$(leading_ids "$@")
+  commit_proposals "Decline dream proposals $ids ($(stamp))" <<<"$updated"
+  echo "Declined proposal(s) $ids: they will not be proposed again; your decision feeds the next dreams."
 }
 
 # Drops repeated links, links to the entry itself and links to a dropped name from a
