@@ -322,9 +322,10 @@ sweep backs up all three, encrypted, after filing memex.
   host. The archive is committed to a git clone as `<host>/<UTC time>.tar.zst.age`
   and pushed. Outside the host only dates and sizes are visible: paths, which name
   clients, are inside the encryption.
-- **Keys**: the host holds public keys only; the private key stays with the user,
-  off the host. A compromised host cannot read past archives. Losing the private
-  key loses the backup.
+- **Keys**: encrypting needs public keys only, so the secret key can stay off the
+  host, and a compromised host then cannot read past archives. Keeping it on the
+  host (one key for everything) is simpler and gives that up. Either way a copy
+  must live off the host: losing the secret key loses the backup.
 - **Configuration**: `RECALL_BACKUP_DIR` (the clone) and
   `RECALL_BACKUP_RECIPIENTS` (an age recipients file: `age1…` or `ssh-ed25519`
   lines), set in Claude Code's `env` settings so hooks see them. Unset: no backup,

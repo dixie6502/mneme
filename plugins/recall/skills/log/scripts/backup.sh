@@ -4,7 +4,7 @@
 # last backup into one archive, compresses it and encrypts it to the configured
 # age recipients on this machine, then commits and pushes it to the backup clone
 # as <host>/<UTC time>.tar.zst.age. Only the date and size are visible outside:
-# file names are inside the encryption. This machine holds public keys only.
+# file names are inside the encryption. Encrypting needs public keys only.
 # Run by the sweep. Restore: ARCHITECTURE.md > Backup.
 # Usage: backup.sh
 set -euo pipefail
