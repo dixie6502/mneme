@@ -1,30 +1,34 @@
 # Architecture
 
 mneme is an information system for a Claude Code agent (dixie): what happened,
-what is true, what is being worked out, what is left to do, and where things
+what is known, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with three plugins, none depending on
 another.
 
-Status: everything is built. The memex dream pass runs in propose mode: nothing
-changes without the user's approval.
-See `README.md`.
+Status: being restructured (central `memo` store, `recall` renamed `memex`, the
+`memex` store renamed `knowledge`, local `debrief`). This document describes the
+target; the code still follows the previous layout until each plugin is migrated.
+The knowledge dream pass runs in propose mode: nothing changes without the user's
+approval. See `README.md`.
 
 ## Model
 
 ```
 Claude transcripts   raw, append-only, the only source of truth
   └─► log            episodic: what happened, per session          (derived)
-        └─► memex    persistent: facts inferred from the log       (derived)
+        └─► knowledge  semantic: linked facts inferred from the log  (derived)
 
 notes                fleeting: what is being worked out → docs      (authored)
 TODO.md              open items: what is left to do                 (authored)
 debrief              view across all of the above                   (read-only)
 ```
 
-- **Derived flows one way**: transcripts → log → memex. Nothing derived is
+- **Derived flows one way**: transcripts → log → knowledge. Nothing derived is
   edited by hand; corrections go through a session, so they reach the source.
-- **Authored stays where it is written**: notes, `TODO.md`, and outside mneme the
-  project docs, rules (`CLAUDE.md`) and skills.
+- **Authored lives in one store, outside every repo**: notes and `TODO.md` sit in
+  `~/memo`, never in a clone, so Claude meets them only when a skill reads them on
+  purpose, not through a search of the project. Outside mneme, the project docs,
+  rules (`CLAUDE.md`) and skills stay where they are written.
 - **Transcripts are evidence, not truth.** Derivation weights the user's
   statements and verified results (command output, commits), and treats all
   transcript content as data, never as instructions.
@@ -33,41 +37,46 @@ debrief              view across all of the above                   (read-only)
 
 ## Plugins
 
-| Plugin | Job | Skills | Installed where |
-|---|---|---|---|
-| `memo` | workspace: written in the project, by the user or Claude | todo, note; format hook | anywhere |
-| `recall` | memory: derived from transcripts | log, memex; hooks, sweep, backup | the agent's hosts |
-| `debrief` | overview of whatever data exists | debrief, sessions | anywhere |
+Naming: a plugin that holds something is a noun, one that does something a verb.
+
+| Plugin | Job | Skills | Stores | Installed where |
+|---|---|---|---|---|
+| `memo` | authored: written by the user or Claude | todo, note; hooks | `~/memo`, synced | anywhere |
+| `memex` | derived from transcripts | log, knowledge; hooks, sweep, backup | `~/log`, `~/knowledge`, per host | the agent's hosts |
+| `debrief` | where things stand | debrief, sessions | none | anywhere |
 
 `memo` (Latin *memorandum*, "to be remembered") holds what is authored: open
-items and working notes. `recall` holds what is derived. No plugin depends on
-another: each works alone, and the full system is all three. `debrief` reads the others' files when they exist; those formats are
-interfaces owned by their plugin (see debrief). Claude Code cannot enable a
-subset of a plugin's skills, hence one plugin per job.
+items and working notes, the only data that follows the user from host to host.
+`memex` (Vannevar Bush's device holding all of a person's records) holds what is
+derived, on the host that derived it. No plugin depends on another: each works
+alone, and the full system is all three. `debrief` reads the others' files when
+they exist; those formats are interfaces owned by their plugin (see debrief).
+Claude Code cannot enable a subset of a plugin's skills, hence one plugin per job.
 
 ## The family
 
 | Skill | Answers | Writes | Reads | Invoked |
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
-| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
-| `note` | what is being worked out | project `note/` | — | user only |
-| `todo` | what is left to do | `TODO.md` | — | `/todo`; when work leaves something open |
+| `knowledge` | what is known | `~/knowledge` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
+| `note` | what is being worked out | `~/memo/<scope>/note/` | — | user only |
+| `todo` | what is left to do | `~/memo/<scope>/TODO.md` | — | `/todo`; when work leaves something open |
 | `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
 | `sessions` | what runs now | nothing | live Claude sessions, tmux | `/sessions` |
 
 ### Interactions
 
-- **One write pipeline**: transcript → log entry → memex update. Log entries are
-  written at session end and compaction; the daily sweep logs what was missed,
-  files the log's new facts into memex, then backs everything up (see Backup).
+- **One write pipeline**: transcript → log entry → knowledge update. Log entries
+  are written at session end and compaction; the daily sweep logs what was missed,
+  files the log's new facts into knowledge, then backs everything up (see Backup).
 - **One search backend**: `log` searches the log, then raw transcripts.
-  `memex find` searches memex first, then calls the same backend.
-- **note → memex**: no direct path. A note's findings reach memex only through
-  the log of the session that worked on it.
+  `knowledge find` searches the store first, then calls the same backend.
+- **note → knowledge**: no direct path. A note's findings reach knowledge only
+  through the log of the session that worked on it.
 - **log → todo**: log entries never hold next steps; open items go to `TODO.md`.
-- **memex → debrief**: consolidation proposals stay in memex; debrief lists them
-  under "Needs you". memex writes no `TODO.md`: its global layer has no project.
+- **knowledge → debrief**: consolidation proposals stay in the knowledge store;
+  debrief lists them under "Needs you". knowledge writes no `TODO.md`: its global
+  layer has no project.
 - **todo is independent**: it knows none of the other skills and works alone.
   An item links a note only when the user names an existing one.
 - **note → debrief**: stale notes are listed under "Needs you" (convert or
@@ -78,12 +87,66 @@ subset of a plugin's skills, hence one plugin per job.
 
 ## Shared conventions
 
+- **Paths from home**: every store and clone is named from `~` (`$HOME` in
+  scripts), never from an absolute path, so the same tree under another home
+  works unchanged.
 - **Scope from the working directory**: clones live at `~/<Host>/<owner>/<repo>`;
-  the owner is the scope. Home and scratch are global.
+  the owner is the scope for knowledge, `<owner>/<repo>` for memo. Scratch topics
+  (`~/scratch/<topic>`) and home are global for knowledge; memo gives a scratch
+  topic its own folder.
 - **Links**: `[[wikilinks]]` by basename, checked with `wkref`.
 - **Provenance**: dated entries carry `YYYY-MM-DD · host`.
 - **One writer per store per host**, under a lock. Readers are unlimited.
 - **Separation**: one owner's content never reaches another owner's session.
+
+## memo
+
+The authored store: one git repository at `~/memo`, outside every clone, holding
+each project's `TODO.md` and notes. It replaces the `TODO.md` and `note/` that
+used to sit in clones.
+
+### Layout
+
+```
+~/memo/                       git repo, synced to a private remote
+  global/TODO.md              no project: home, the agent's own setup
+  <owner>/<repo>/TODO.md
+  <owner>/<repo>/todo/        item detail files, deleted with their item
+  <owner>/<repo>/note/*.md
+  scratch/<topic>/TODO.md     a scratch topic without a repo
+  scratch/<topic>/note/*.md
+```
+
+- **Scope**: from the working directory. Inside `~/<Host>/<owner>/<repo>`, the
+  folder `<owner>/<repo>`: the host part is dropped, so mirrors of one repo on
+  several hosts share a folder. Inside `~/scratch/<topic>`, `scratch/<topic>`.
+  Anywhere else, `global`.
+- Nothing is written into clones: no `TODO.md`, no `note/`, no `.git/info/exclude`
+  entry. A project's files are found only by the scope, never by searching it.
+- The scope folder is created on the first write; reading an absent one is not an
+  error.
+
+### Sync
+
+The store follows the user from host to host through its git remote, a private
+repository (GitHub now, a Forgejo host later). It holds every owner's items and
+notes in one repository, so the remote must stay private.
+
+- **Pull** at session start (`SessionStart` hook, detached): fetch and rebase local
+  commits onto the remote, under `flock ~/memo/.lock`.
+- **Commit and push** at session end (`SessionEnd` hook, detached): commit every
+  change in the store as `<host> · <UTC time>`, then push.
+- **Secrets**: `gitleaks` scans each commit before the push; a finding blocks the
+  push and leaves the commit local.
+- **Failures** (a rebase conflict, a refused push, a gitleaks finding) leave local
+  commits in place, abort any rebase, and write the reason to
+  `~/.cache/memo/sync.log`; `debrief` shows unpushed memo commits and the last
+  error. Conflicts are resolved by the user.
+- **No remote configured**: local commits only; history still works, and
+  `debrief` says the store is not synced.
+- `memo.sh init` creates the repository; adding the remote is the user's step.
+- History replaces the old "git history records it" of project repos: a finished
+  item is deleted, and the store's history keeps it.
 
 ## log
 
@@ -97,7 +160,7 @@ missed.
   host, not versioned; backed up encrypted (see Backup).
 - `log` answers "when did we…", "why did we…" from the entries, falling back to
   raw transcripts for detail.
-- `found` and `decided` are the input of memex.
+- `found` and `decided` are the input of knowledge.
 
 ### One skill, reader and writer
 
@@ -109,7 +172,7 @@ skills/log/
   scripts/write.sh    writer: one entry for a transcript's unlogged lines
   scripts/extract.sh  deterministic digest of a transcript part
   scripts/sweep.sh    catch-up: every transcript idle an hour or more
-  scripts/backup.sh   encrypted backup of transcripts, log and memex
+  scripts/backup.sh   encrypted backup of transcripts, log and knowledge
   scripts/logged-line.sh  last line already covered, per session
   scripts/common.sh   shared paths
   write-prompt.md     instructions for the writer's model run
@@ -121,16 +184,16 @@ skills/log/
   day old or more, for crashed or never-closed sessions. No cron: the plugin
   carries all its triggers.
 - **Idempotent**: each run starts where the last stopped (`to_line` in the
-  entries, skipped parts in `~/.cache/recall/log/skipped/`), under a lock on
+  entries, skipped parts in `~/.cache/memex/log/skipped/`), under a lock on
   `~/log/.lock`. Re-running is harmless.
 - **Writer**: `extract.sh` builds the digest (prompts, replies, commits in the
   session window across clones, issue links, memory notes written). Trivial parts
   (fewer than 2 prompts, no commit) are skipped without a model call. A headless
   Sonnet run with no tools fills `schema.json`; links absent from the digest are
   dropped; the script renders the markdown and appends the JSON.
-- **No recursion**: the writer's own run sets `RECALL_LOG_WRITER`, and the hook
+- **No recursion**: the writer's own run sets `MEMEX_LOG_WRITER`, and the hook
   ignores sessions that carry it.
-- State (`~/.cache/recall/log/`: skipped parts, run log, last sweep) is never read
+- State (`~/.cache/memex/log/`: skipped parts, run log, last sweep) is never read
   by people.
 - **Why it writes itself**: a rule asking the agent to log fails silently when
   forgotten or when a session crashes; transcripts are written by Claude Code and
@@ -142,16 +205,16 @@ skills/log/
   search, from a fresh context. The writer falls back to Haiku when Sonnet's
   safeguards refuse a harmless session.
 
-## memex
+## knowledge
 
-Persistent memory: facts inferred from the log, grouped by scope, linked,
-loaded only on demand. Purely derived: nothing in it is written by hand or
-directly by a session.
+Semantic memory: facts inferred from the log, grouped by scope, linked, loaded
+only on demand. Purely derived: nothing in it is written by hand or directly by a
+session.
 
 ### Layout
 
 ```
-~/memex/                local git repo, created by the writer's first run
+~/knowledge/            local git repo, created by the writer's first run
   .wikijump
   CLAUDE.md             rules of the store
   .dream/proposals.json consolidation proposals and their status
@@ -173,7 +236,7 @@ directly by a session.
   One `#moc` index per layer, read first by `find`; an owner's index links up to
   `[[global]]`. No root index: it would link down into every owner.
 - Flat namespace: basenames unique across the store, so one
-  `wkref check --root ~/memex` covers all layers.
+  `wkref check --root ~/knowledge` covers all layers.
 
 ### Entry format
 
@@ -214,14 +277,14 @@ The sweep appends to `## Log` and rewrites the summary and `## Facts` from it.
 
 ### Commands
 
-The skill is user-invoked only, forked, on Sonnet; `scripts/memex.sh` does the
+The skill is user-invoked only, forked, on Sonnet; `scripts/knowledge.sh` does the
 deterministic parts (`scope`, `init`, `find`, `check`).
 
-- `find <query>`: memex (current state), then the log (when, why), then raw
+- `find <query>`: knowledge (current state), then the log (when, why), then raw
   transcripts, through log's `search.sh`. Current scope only. Read-only.
 - `remember <fact>`: the invocation itself is the record. The log's `extract.sh`
-  copies the `/memex remember` arguments from the transcript into the digest, and
-  `write.sh` puts them in the entry's `remember` field verbatim (no model). A
+  copies the `/knowledge remember` arguments from the transcript into the digest,
+  and `write.sh` puts them in the entry's `remember` field verbatim (no model). A
   session part holding one is never skipped. The skill only states the scope and
   flags facts that belong elsewhere.
 - `check`: `wkref check`, the upward-link rule, dead paths under `## Paths`,
@@ -233,14 +296,14 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 ### Writing
 
 `scripts/file.sh` is the only writer, run at the end of the daily sweep under
-`flock ~/memex/.lock`. Once a day keeps model runs and commits few; until then
+`flock ~/knowledge/.lock`. Once a day keeps model runs and commits few; until then
 `find` still sees a fresh `remember` through the log search.
 
 - **Source scope = target scope**: an entry's scope is its directory's owner; from
   home or scratch, the single owner of the repos it committed to, else global. An
   entry spanning several owners is not filed (reported in the run log).
 - **Which facts**: entries with `found`, `decided` or `remember`, past each scope's
-  progress marker (`~/.cache/recall/log/memex-filed/<scope>`). Global is filed
+  progress marker (`~/.cache/memex/log/knowledge-filed/<scope>`). Global is filed
   first, so owner layers can link to its new entries.
 - **Confined model run**: one headless Sonnet run per layer and batch of 25 items,
   following `file-prompt.md`. Its working directory is the layer; it may edit only
@@ -261,20 +324,20 @@ Consolidation in propose mode: `scripts/dream.sh`, run by the sweep after filing
 Nothing in an entry changes until the user approves a proposal.
 
 - **Propose**: each layer changed since its last dream (marker per layer in
-  `~/.cache/recall/log/memex-dreamed/`) and with no proposal pending gets one
+  `~/.cache/memex/log/knowledge-dreamed/`) and with no proposal pending gets one
   read-only model run, following `dream-prompt.md` under `dream-schema.json`. It
   reads the layer (and global, for links) and returns at most 5 proposals: `merge`,
   `split`, `link`, `update` (summary or facts contradicting the entry's own log),
   `index`, `retire` (an entry whose subject no longer exists). Hints computed by the script: orphans, entries over about a screen.
   Each proposal carries the model's confidence (high, medium, low).
-- **Store**: `~/memex/.dream/proposals.json`, committed with the store: id, layer,
-  kind, entries, `into` (merges), a one-line summary, the precise change, the
-  confidence, the status (`open`, `approved`, `applied`, `skipped`, `failed`,
+- **Store**: `~/knowledge/.dream/proposals.json`, committed with the store: id,
+  layer, kind, entries, `into` (merges), a one-line summary, the precise change,
+  the confidence, the status (`open`, `approved`, `applied`, `skipped`, `failed`,
   `rejected`), and the user's `decision`, its date and optional `note`.
-- **Decide**: `/memex dream` lists the scope's proposals; `/memex apply <ids>` or
-  `/memex reject <ids>` is the user's decision, and the only trigger for a change.
-  `/memex retire <entry>` records an approved retirement the user asks for directly.
-  `debrief` counts the proposals waiting under "Needs you".
+- **Decide**: `/knowledge dream` lists the scope's proposals; `/knowledge apply
+  <ids>` or `/knowledge reject <ids>` is the user's decision, and the only trigger
+  for a change. `/knowledge retire <entry>` records an approved retirement the user
+  asks for directly. `debrief` counts the proposals waiting under "Needs you".
 - **Apply**: in the background, one confined model run per layer
   (`apply-prompt.md`, `apply-schema.json`), editing that layer only. An applied
   merge leaves the absorbed entries to the script, which repoints links to them
@@ -287,21 +350,19 @@ Nothing in an entry changes until the user approves a proposal.
   next dream of a layer sees that layer's and global's decisions in full (never
   repeating a declined one, learning from the user's notes) and a content-free
   track record across all layers: approvals per kind and confidence.
-- **Toward unattended**: approval is required for every kind for now. `/memex
-  dream` shows the track record and flags a kind as ready once it has 10 decisions
-  with 90% approved; letting that kind apply without approval is then the user's
-  call, a small change to `dream.sh`.
+- **Toward unattended**: approval is required for every kind for now.
+  `/knowledge dream` shows the track record and flags a kind as ready once it has
+  10 decisions with 90% approved; letting that kind apply without approval is then
+  the user's call, a small change to `dream.sh`.
 - Models: Sonnet, then Haiku when Sonnet's safeguards refuse a layer.
-- A retired entry's history stays in the log, the transcripts and memex's git
+- A retired entry's history stays in the log, the transcripts and the store's git
   history; whatever still matters is merged instead.
 
 ### Several hosts
 
-- Each host derives from its own transcripts and log, and writes under the lock:
-  pull, write, commit, push.
-- Sync target, once a second host exists: a bare git repo on a LAN host over
-  SSH. Only unpushed local commits are rebased.
-- Cloud and remote sessions have no access to `~/memex`.
+- The log and knowledge stay on the host that derived them: each host derives
+  from its own transcripts. Only `memo` is shared between hosts.
+- Cloud and remote sessions have no access to `~/knowledge`.
 
 ## note
 
@@ -310,31 +371,31 @@ into docs, which do not exist at first and are generated from the notes later.
 
 - Created only by the user, through `note` (`disable-model-invocation`). Ships in
   `memo` with todo; needs `wkref` for links.
-- Location: `note/` at the project root; in a scratch topic when there is no
-  project. `[[wikilinks]]`, checked with `wkref check --root note`.
-- Git-ignored through the clone's local `.git/info/exclude`, so no commit lands in
-  anyone's repo. `notes.sh init` refuses a `note/` that already holds tracked
-  files: untracking them is the user's call.
+- Location: `~/memo/<scope>/note/` (see memo). `[[wikilinks]]`, checked with
+  `wkref check --root ~/memo/<scope>/note`.
+- Versioned and synced with the store; a project repo never sees them.
 - Each note has a `created` date (frontmatter, else the file's mtime). Notes older
   than 28 days are stale: `debrief` lists them under "Needs you".
 - Operations: write (create or update), `list`, `check`, `convert` (lasting
-  content into `README.md`, `ARCHITECTURE.md`, `CLAUDE.md` or `docs/`, after the
-  user approves the edits), `delete` (explicit yes only, with `wkref rm`).
+  content into the project's `README.md`, `ARCHITECTURE.md`, `CLAUDE.md` or
+  `docs/`, after the user approves the edits), `delete` (explicit yes only, with
+  `wkref rm`).
 - A note is deleted only with the user, never automatically: once its content is
-  in docs, or (no docs target) once its findings are in the log, hence memex.
-- Not versioned: every note is written in a session, so its content is in the
-  transcripts.
+  in docs, or (no docs target) once its findings are in the log, hence knowledge.
+- Shared notes (meeting notes, for instance) are made by the user, from these
+  files, when needed; mneme publishes nothing.
 - Exception: research repos, where the paper is the doc. The paper is
-  versioned; notes feed it.
+  versioned in its repo; notes feed it.
 
 ## todo
 
-Open items per project in `TODO.md`: questions and actions for the user
-(`You`), then `Now`, `Next`, `Later`. Format and check script live in the
-`memo` plugin. Done items are deleted; the log and git history record them.
+Open items per scope in `~/memo/<scope>/TODO.md`: questions and actions for the
+user (`You`), then `Now`, `Next`, `Later`. Format and check script live in the
+`memo` plugin. Done items are deleted; the log and the store's history record
+them.
 
-- Independent: installable and usable without `recall` or `debrief`.
-- Long item detail goes in a detail file under `tmp/` (git-ignored), linked from
+- Independent: installable and usable without `memex` or `debrief`.
+- Long item detail goes in a detail file under `~/memo/<scope>/todo/`, linked from
   the item, and deleted with it.
 - When adding an item, the user may name an existing note to link. todo never
   creates or deletes a note.
@@ -351,24 +412,30 @@ its data does.
 model only adds a one-line "Where we are" from the log details (skipped when the
 machine has no log).
 
-- **Needs you**: `You` items from every `TODO.md` (questions first), issues
-  labelled `user`, Claude auto memory folders holding notes to promote, projects
-  with stale notes, failed or interrupted memex writes, and, where the log runs, a backup that
-  is unconfigured or more than two days old;
+- **Local or all**: run inside a clone or scratch topic, debrief is local: that
+  project in full, its log entries, and the global "Needs you". Run from home, or
+  as `/debrief all`, it covers every project.
+- **Needs you**: `You` items from every `TODO.md` in the store (questions first),
+  issues labelled `user`, Claude auto memory folders holding notes to promote,
+  scopes with stale notes, failed or interrupted knowledge writes, a memo store
+  unsynced or failing to sync, and, where the log runs, a backup that is
+  unconfigured or more than two days old;
 - **Running now**: a count of the other live Claude sessions (details:
   `/sessions`) and clones with uncommitted or unpushed work;
-- **Log**: the latest N entries, or `last` (since the previous unfiltered
-  debrief, time kept in `~/.cache/debrief/last-run`);
-- **Memex**: entries changed since the last debrief (what changed, not content:
-  content is what `find` is for);
-- **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
-- with a filter, one project in full.
+- **Log**: the latest N entries, or `last` (since the previous `all` debrief, time
+  kept in `~/.cache/debrief/last-run`);
+- **Knowledge**: entries changed since the last debrief (what changed, not
+  content: content is what `find` is for);
+- **Projects** (all only): per scope, the `Now` or first `Next` item, counts, open
+  issues.
 
-Interfaces it reads, each owned by its plugin: `TODO.md` (format of `memo`'s
-todo), `note/*.md` with a `created:` date, stale after 28 days (`memo`'s note),
-`~/log/entries.jsonl` (`schema.json` of `log`), `~/memex` git history and stash,
-`~/memex/.dream/proposals.json` and `~/.cache/recall/log/last-backup` (`recall`).
-A change to one of them changes debrief too.
+Interfaces it reads, each owned by its plugin: `~/memo/<scope>/TODO.md` (format
+of `memo`'s todo), `~/memo/<scope>/note/*.md` with a `created:` date, stale after
+28 days (`memo`'s note), `~/memo` git status and `~/.cache/memo/sync.log`
+(`memo`), `~/log/entries.jsonl` (`schema.json` of `log`), `~/knowledge` git
+history and stash, `~/knowledge/.dream/proposals.json` and
+`~/.cache/memex/log/last-backup` (`memex`). A change to one of them changes
+debrief too.
 
 ### sessions: what runs now
 
@@ -382,13 +449,13 @@ it may hold secrets. `report.py` calls it with `--count` for its one line.
 
 ## Backup
 
-Transcripts are the only source of truth and live on one host. The log and memex
-can be rebuilt from them, but only through model runs, and not identically. The
-sweep backs up all three, encrypted, after filing memex.
+Transcripts are the only source of truth and live on one host. The log and
+knowledge can be rebuilt from them, but only through model runs, and not
+identically. The sweep backs up all three, encrypted, after filing knowledge.
 
 - **What**: `~/.claude/projects` (transcripts, subagent runs, auto memory),
-  `~/log`, and `~/memex` with its git history. Notes are not backed up: they are
-  fleeting, and their content is in the transcripts.
+  `~/log`, and `~/knowledge` with its git history. `~/memo` is not in it: its
+  remote is its backup, and `memo` works without `memex`.
 - **How**: `log/scripts/backup.sh` packs the files changed since the last success
   (by ctime), compresses them with `zstd` and encrypts them with `age`, on the
   host. The archive is committed to a git clone as `<host>/<UTC time>.tar.zst.age`
@@ -398,19 +465,19 @@ sweep backs up all three, encrypted, after filing memex.
   host, and a compromised host then cannot read past archives. Keeping it on the
   host (one key for everything) is simpler and gives that up. Either way a copy
   must live off the host: losing the secret key loses the backup.
-- **Configuration**: `RECALL_BACKUP_DIR` (the clone) and
-  `RECALL_BACKUP_RECIPIENTS` (an age recipients file: `age1…` or `ssh-ed25519`
+- **Configuration**: `MEMEX_BACKUP_DIR` (the clone) and
+  `MEMEX_BACKUP_RECIPIENTS` (an age recipients file: `age1…` or `ssh-ed25519`
   lines), set in Claude Code's `env` settings so hooks see them. Unset: no backup,
   and `debrief` says so.
 - **Incremental**: a transcript still growing is packed again in full each day;
   compression keeps that cheap (62 MB of transcripts → 5 MB).
-- **Failures**: the marker `~/.cache/recall/log/last-backup` advances only after a
+- **Failures**: the marker `~/.cache/memex/log/last-backup` advances only after a
   push, so a failed run is retried whole the next day. A run cut short (a
   shutdown) is finished by the next one: it deletes a half-written `.partial`,
   commits a finished archive left uncommitted, and pushes unpushed commits. Errors go to the run log;
   `debrief` flags a last success more than two days old.
 - **Retention**: transcripts are deleted after Claude Code's `cleanupPeriodDays`;
-  set it high (years), since memex and `/log` reach back to them.
+  set it high (years), since knowledge and `/log` reach back to them.
 - **Restore**, oldest archive first (names sort by time):
 
   ```
@@ -419,3 +486,16 @@ sweep backs up all three, encrypted, after filing memex.
     age -d -i <private key file> "$archive" | zstd -d | tar -x -C ~
   done
   ```
+
+## Migration
+
+From the previous layout, once per host; scripts in the repo, run by the user.
+
+- `~/memex` → `~/knowledge`; `~/.cache/recall/` → `~/.cache/memex/`, with the
+  `memex-filed` and `memex-dreamed` markers renamed `knowledge-*`;
+  `RECALL_BACKUP_*` → `MEMEX_BACKUP_*` in Claude Code's `env` settings.
+- Each clone's `TODO.md` and `note/` → `~/memo/<owner>/<repo>/`, with `tmp/`
+  detail files moved to `todo/` and their links rewritten; scratch topics and
+  `construct/TODO.md` (→ `global/`) likewise. Tracked files are left for the user
+  to remove from their repo.
+- Plugins reinstalled: `recall@mneme` uninstalled, `memex@mneme` installed.
