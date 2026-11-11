@@ -1,6 +1,6 @@
 {
   "name": "memo",
-  "description": "Each project's open items in a managed TODO.md and fleeting notes, written only on the user's request, kept in one store outside every repo (~/memo) and synced through its git remote at session start and end.",
+  "description": "Each project's open items in a managed TODO.md and fleeting notes, written only on the user's request, kept in the folder's folio notebook (~/memo, outside every repo) and synced through the store's git remote at session start and end.",
   "author": {
     "name": "dixie6502"
   },

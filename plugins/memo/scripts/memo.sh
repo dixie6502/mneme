@@ -1,59 +1,21 @@
 #!/usr/bin/env bash
-# The memo store: ~/memo, one git repo outside every clone, holding each scope's
-# TODO.md and notes, synced through its git remote.
+# Versioning and sync of the memo store: folio's store ($FOLIO_HOME, default
+# ~/memo), one git repo outside every clone. folio owns its notebooks and knows
+# nothing of git; this script owns the git side.
 #
-# Usage: memo.sh scope [dir]   the scope of a directory (default: cwd)
-#        memo.sh dir [dir]     the store folder of that scope (not created)
-#        memo.sh init          create the store if missing; prints its path
+# Usage: memo.sh init          make the store a git repo if it is not; prints it
 #        memo.sh sync          commit local changes, pull (rebase), scan, push
 #        memo.sh hook          plugin hook entry: sync, detached, silent
 #
-# Scope: <owner>/<repo> inside a clone at ~/<Host>/<owner>/<repo> (the host part
-# is dropped, so mirrors share a folder), scratch/<topic> inside ~/scratch/<topic>,
-# else global. Exit codes: 0 ok, 1 sync failed (reason in the sync log), 64 usage.
+# Exit codes: 0 ok, 1 sync failed (reason in the sync log), 64 usage.
 set -euo pipefail
 
-readonly MEMO_DIR="${MEMO_DIR:-$HOME/memo}" # override for tests only
+readonly MEMO_DIR="${FOLIO_HOME:-$HOME/memo}" # folio's store
 readonly STATE_DIR="${MEMO_STATE_DIR:-$HOME/.cache/memo}"
 readonly SYNC_LOG="$STATE_DIR/sync.log"
 readonly LOCK_WAIT_SECONDS=30
-readonly GLOBAL_SCOPE=global
-readonly SAFE_NAME='^[A-Za-z0-9._-]+$'
 
 fail() { echo "memo: $1" >&2; exit 1; }
-
-# Prints the scope of directory $1.
-scope_of() {
-  local dir home common clone relative
-  dir=$(cd "$1" && pwd -P) || fail "no such directory: $1"
-  home=$(cd "$HOME" && pwd -P)
-  if common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-    clone=$(dirname "$common") # the main checkout, also for a linked worktree
-    relative=${clone#"$home"/}
-    local parts
-    IFS=/ read -ra parts <<<"$relative"
-    if [[ $relative != "$clone" && ${#parts[@]} -eq 3 && ${parts[0]} != scratch ]]; then
-      print_safe_scope "${parts[1]}/${parts[2]}"
-      return
-    fi
-  fi
-  relative=${dir#"$home"/}
-  if [[ $relative != "$dir" && $relative == scratch/?* ]]; then
-    local topic=${relative#scratch/}
-    print_safe_scope "scratch/${topic%%/*}"
-    return
-  fi
-  echo "$GLOBAL_SCOPE"
-}
-
-# Prints scope $1 after checking each part is a plain name (no path tricks).
-print_safe_scope() {
-  local part
-  for part in ${1//\// }; do
-    [[ $part =~ $SAFE_NAME && $part != . && $part != .. ]] || fail "unsafe scope name: $1"
-  done
-  echo "$1"
-}
 
 # Creates the store as a git repo; prints its path.
 init_store() {
@@ -131,17 +93,11 @@ run_hook() {
 main() {
   local command="${1:-}"
   case $command in
-    scope) scope_of "${2:-.}" ;;
-    dir)
-      local scope
-      scope=$(scope_of "${2:-.}")
-      echo "$MEMO_DIR/$scope"
-      ;;
     init) init_store ;;
     sync) sync_store ;;
     hook) run_hook ;;
     *)
-      echo "usage: memo.sh scope|dir [dir] | init | sync | hook" >&2
+      echo "usage: memo.sh init | sync | hook" >&2
       exit 64
       ;;
   esac

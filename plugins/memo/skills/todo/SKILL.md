@@ -1,8 +1,8 @@
 ---
 name: todo
-description: Track the current project's open items in its TODO.md, kept in the memo store (~/memo), outside the repo - init, convert, add, answer, finish, reorder, check and fix. Use whenever work leaves something open (a todo, a bug, a question or an action for the user), when the user answers or ticks an item, before a session ends, or when the user asks "what's next". Acts only on a TODO.md managed by /todo. Argument, if any, is an optional `@path/TODO.md` then what to do (e.g. "init", "convert", "add ...", "check").
+description: Track the current project's open items in its TODO.md, kept in the folder's folio notebook, outside the repo - init, convert, add, answer, finish, reorder, check and fix. Use whenever work leaves something open (a todo, a bug, a question or an action for the user), when the user answers or ticks an item, before a session ends, or when the user asks "what's next". Acts only on a TODO.md managed by /todo. Argument, if any, is an optional `@path/TODO.md` then what to do (e.g. "init", "convert", "add ...", "check").
 argument-hint: "[@path/TODO.md] [init|convert|check|fix|add ...]"
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *), Bash(${CLAUDE_SKILL_DIR}/../../scripts/memo.sh dir *), Bash(${CLAUDE_SKILL_DIR}/../../scripts/memo.sh scope *), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *), Bash(folio --dir), Bash(folio init), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
 ---
 
 # TODO
@@ -12,11 +12,13 @@ Request: $ARGUMENTS
 ## Target file
 
 - First argument ending in `.md` (leading `@` optional): that file. Edit a file outside
-  the current scope only when the user names it this way.
-- Otherwise: `TODO.md` in the current scope's folder of the memo store, printed by
-  `${CLAUDE_SKILL_DIR}/../../scripts/memo.sh dir` (`~/memo/<owner>/<repo>` in a clone,
-  `~/memo/scratch/<topic>` in a scratch topic, else `~/memo/global`). This is the
+  the current notebook only when the user names it this way.
+- Otherwise: `TODO.md` in the current folder's notebook, printed by `folio --dir`
+  (`~/memo/<owner>/<repo>` for a repository, `~/memo/<path from ~>` for another
+  folder initialized with `folio init`). This is the
   script's default when no file is passed. Never write a `TODO.md` into a repo.
+- No notebook here (`folio --dir` fails): only `init` creates one (`folio init`);
+  any other operation relays the message and stops.
 
 A file is managed when its first line is `<!-- managed by /todo -->`. Never edit an
 unmanaged `TODO.md`, except through `convert`.

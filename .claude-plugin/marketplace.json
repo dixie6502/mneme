@@ -8,7 +8,7 @@
     {
       "name": "memo",
       "source": "./plugins/memo",
-      "description": "Open items (TODO.md) and fleeting notes, per project, in one synced store outside the repos."
+      "description": "Open items (TODO.md) and fleeting notes, per folder, in folio notebooks outside the repos, synced."
     },
     {
       "name": "memex",

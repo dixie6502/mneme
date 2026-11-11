@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Set up or list a scope's fleeting notes: note/ in the scope's folder of the memo
-# store (see memo.sh), never inside a project repo.
+# Set up or list the current folder's fleeting notes: the markdown files of its
+# folio notebook, except TODO.md and item details under todo/.
 #
-# Usage: notes.sh init [dir]   create note/ (with .wikijump); prints its path
-#        notes.sh list [dir]   one line per note: file, created, age in days, state
+# Usage: notes.sh init   create the notebook if needed (folio init); prints it
+#        notes.sh list   one line per note: file, created, age in days, state
 #
-# [dir] is a scope folder of the store; it defaults to the current directory's.
 # A note is stale once older than STALE_DAYS; its created date comes from the
-# frontmatter, else the file's mtime. Exit codes: 0 ok, 64 usage.
+# frontmatter, else the file's mtime. Exit codes: 0 ok, 2 no notebook here or
+# folio missing, 64 usage.
 set -euo pipefail
 
-readonly NOTE_DIR_NAME=note
 readonly STALE_DAYS=28
 readonly SECONDS_PER_DAY=86400
 MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
 readonly MEMO_SCRIPT
 
-# Creates the store if needed, then note/ and its wikilink marker.
+# Creates the current folder's notebook if needed, and the store's git repo.
 init_notes() {
-  local note_dir="$1/$NOTE_DIR_NAME"
+  folio init || exit 2
   "$MEMO_SCRIPT" init >/dev/null
-  mkdir -p "$note_dir"
-  touch "$note_dir/.wikijump"
-  echo "$note_dir"
 }
 
 # Prints the created date (YYYY-MM-DD) of a note.
@@ -35,13 +31,13 @@ created_date() {
   echo "$created"
 }
 
-# Prints one tab-separated line per note, oldest first.
+# Prints one tab-separated line per note of the current notebook, oldest first.
 list_notes() {
-  local note_dir="$1/$NOTE_DIR_NAME" note created age now
-  [[ -d $note_dir ]] || return 0
+  local notebook note created age now
+  notebook=$(folio --dir) || exit 2
   now=$(date +%s)
-  for note in "$note_dir"/*.md; do
-    [[ -f $note ]] || continue
+  find "$notebook" -name '.*' -prune -o -name '_*' -prune -o -path "$notebook/todo" -prune \
+    -o -type f -name '*.md' ! -path "$notebook/TODO.md" -print | while IFS= read -r note; do
     created=$(created_date "$note")
     age=$(((now - $(date -d "$created" +%s)) / SECONDS_PER_DAY))
     printf '%s\t%s\t%s\t%s\n' "$note" "$created" "$age" \
@@ -50,13 +46,13 @@ list_notes() {
 }
 
 main() {
-  local command="${1:-}" root="${2:-}"
-  [[ -n $root ]] || root=$("$MEMO_SCRIPT" dir)
+  local command="${1:-}"
+  command -v folio >/dev/null || { echo "folio is not installed (see mneme's README)" >&2; exit 2; }
   case $command in
-    init) init_notes "$root" ;;
-    list) list_notes "$root" ;;
+    init) init_notes ;;
+    list) list_notes ;;
     *)
-      echo "usage: notes.sh init|list [dir]" >&2
+      echo "usage: notes.sh init|list" >&2
       exit 64
       ;;
   esac

@@ -26,8 +26,10 @@ claude plugin install debrief@mneme   # overview and live sessions
 ```
 
 Do not enable `memo@mneme` next to another plugin that ships a `todo` skill: both
-would manage open items. `note` needs `wkref` for its links. `memo` keeps every
-`TODO.md` and note in `~/memo`, a git repo outside the clones; to sync it between
+would manage open items. `memo` needs [folio](https://github.com/dixie6502/folio)
+on `PATH`, and `note` needs `wkref` for its links. `memo` keeps every `TODO.md` and
+note in the current folder's folio notebook, in `~/memo`, a git repo outside the
+clones (`folio init` gives a folder its notebook); to sync it between
 hosts, give it a private remote (`git -C ~/memo remote add origin <url>`): its hooks
 commit, pull, scan with `gitleaks` and push at session start and end. `memex` writes
 its log to `~/log` and its state to `~/.cache/memex/`; `debrief` keeps its last run
@@ -45,8 +47,8 @@ Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
 - `migrate/memex.sh`, with no session writing: moves `~/memex` to `~/knowledge`
   and `~/.cache/recall` to `~/.cache/memex`, then prints the remaining steps
   (reinstall the plugin, rename the `RECALL_BACKUP_*` settings).
-- `migrate/memo.sh --dry-run`, then without `--dry-run`: moves each project's
-  `TODO.md` and `note/` into `~/memo`.
+- `migrate/folio.sh --dry-run`, then without `--dry-run`, once folio is
+  installed: turns the memo store's folders into folio notebooks.
 
 ## Develop
 

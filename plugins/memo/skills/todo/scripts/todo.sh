@@ -4,8 +4,8 @@
 # Usage: todo.sh init  [file]   create the file from the template
 #        todo.sh check [file]   check the format, list ticked items
 #
-# [file] defaults to TODO.md in the memo store folder of the current directory's
-# scope (see memo.sh).
+# [file] defaults to TODO.md in the current folder's folio notebook. init
+# creates the notebook (folio init) when the folder has none.
 # Exit codes: 0 ok, 1 format errors, 2 file missing / not managed / already exists,
 # 64 usage error.
 set -euo pipefail
@@ -16,11 +16,17 @@ readonly SECTION_ORDER=(You Now Next Later)
 MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
 readonly MEMO_SCRIPT
 
-# Prints the default TODO.md path: the current scope's folder in the memo store.
+# Prints the default TODO.md path, in the current folder's notebook. With $1 =
+# init, creates the notebook first; otherwise a missing one exits 2.
 default_todo_path() {
-  local scope_dir
-  scope_dir=$("$MEMO_SCRIPT" dir)
-  echo "$scope_dir/TODO.md"
+  local notebook
+  command -v folio >/dev/null || { echo "folio is not installed (see mneme's README)" >&2; exit 2; }
+  if [[ ${1:-} == init ]]; then
+    notebook=$(folio init) || exit 2
+  else
+    notebook=$(folio --dir) || exit 2
+  fi
+  echo "$notebook/TODO.md"
 }
 
 # True when the file's first line is the marker.
@@ -42,7 +48,6 @@ init_todo() {
     exit 2
   fi
   "$MEMO_SCRIPT" init >/dev/null
-  mkdir -p "$(dirname "$todo_file")"
   {
     echo "$MANAGED_MARKER"
     echo "$TITLE"
@@ -135,7 +140,7 @@ check_todo() {
 
 main() {
   local command="${1:-}" todo_file="${2:-}"
-  [[ -n $todo_file ]] || todo_file=$(default_todo_path)
+  [[ -n $todo_file ]] || todo_file=$(default_todo_path "$command")
   case $command in
     init) init_todo "$todo_file" ;;
     check) check_todo "$todo_file" ;;
