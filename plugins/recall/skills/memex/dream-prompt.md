@@ -27,6 +27,10 @@ At most 5 proposals, only clear wins; none is a fine answer. Kinds:
 - `update`: a summary or `## Facts` that contradicts the entry's own newest `## Log`
   lines, or states as current what the log shows has changed.
 - `index`: index lines missing, dead or describing an entry wrongly.
+- `retire`: an entry about something that no longer exists (its own log says it was
+  removed, retired or replaced) with nothing left worth knowing. `entries` lists only
+  the entries retired, never the layer index. If some of it still matters, propose a
+  `merge` into the entry that does instead.
 
 Every proposal must respect the store's rules, which the applier follows too:
 

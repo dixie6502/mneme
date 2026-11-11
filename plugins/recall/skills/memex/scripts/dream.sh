@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The dream pass: memex consolidation in propose mode. A read-only model run per
-# layer proposes merges, splits, links and fixes; nothing changes until the user
-# approves a proposal (`/memex apply`). A confined writer then applies it, behind
-# the same gate as file.sh. Proposals live in ~/memex/.dream/proposals.json,
+# layer proposes merges, splits, links, fixes and retirements; nothing changes until
+# the user approves a proposal (`/memex apply`), or asks to retire an entry
+# (`/memex retire`). A confined writer then applies it, behind the same gate as
+# file.sh. Proposals live in ~/memex/.dream/proposals.json,
 # committed with the store.
 #
 # Usage: dream.sh propose            each layer changed since its last dream and with
@@ -10,6 +11,7 @@
 #        dream.sh list [owner]       proposals of the current scope (or owner) and global
 #        dream.sh approve <id>...    approve proposals, then apply them in the background
 #        dream.sh reject <id>...     decline proposals: never proposed again
+#        dream.sh retire <entry>...  retire entries the user names, at once
 #        dream.sh apply              apply every approved proposal (the background job)
 # Exit codes: 0 ok, 1 failure, 64 usage.
 set -euo pipefail
@@ -155,13 +157,14 @@ propose() {
       continue
     fi
     # Keep well-formed proposals about this layer's own entries only.
-    valid=$(jq -c --argjson known "$(entry_names "$layer")" \
+    valid=$(jq -c --argjson known "$(entry_names "$layer")" --arg layer "$layer" \
       --argjson max "$MAX_PROPOSALS_PER_LAYER" '
       [.proposals[]
        | select((.entries | length) > 0
            and all(.entries[]; . as $entry | $known | index($entry)))
        | select(.kind != "merge"
            or ((.entries | length) >= 2 and (.into as $into | .entries | index($into))))
+       | select(.kind != "retire" or all(.entries[]; . != $layer))
        | select((.summary | length) > 0 and (.change | length) > 0)
        | if .kind == "merge" then . else del(.into) end]
       | .[:$max]' <<<"$output")
@@ -235,10 +238,38 @@ approve() {
   local updated
   updated=$(decide approved '["open", "failed"]' "$@")
   commit_proposals "Approve dream proposals $* ($(stamp))" <<<"$updated"
-  mkdir -p "$STATE_DIR"
-  # The background job takes the lock itself, once this command has released it.
-  setsid nohup "$0" apply >>"$RUN_LOG" 2>&1 </dev/null 8>&- &
+  apply_in_background
   echo "Applying proposal(s) $* in the background: \`/memex dream\` shows the result in a minute or two."
+}
+
+# Starts the apply job; it takes the lock itself, once this command has released it.
+apply_in_background() {
+  mkdir -p "$STATE_DIR"
+  setsid nohup "$0" apply >>"$RUN_LOG" 2>&1 </dev/null 8>&- &
+}
+
+# Retires entries the user names: an approved proposal each, applied at once.
+retire() {
+  (($#)) || { echo "usage: dream.sh retire <entry>..." >&2; exit 64; }
+  lock_store --briefly
+  local proposals entry layer
+  proposals=$(read_proposals)
+  for entry in "$@"; do
+    entry=$(basename "$entry" .md)
+    layer=$(find "$MEMEX_DIR" -mindepth 2 -maxdepth 2 -name "$entry.md" -not -path '*/.*' \
+      -printf '%h\n' | xargs -r -n 1 basename)
+    [[ -n $layer ]] || fail "no memex entry named $entry"
+    [[ $entry != "$layer" ]] || fail "$entry is the $layer index: it cannot be retired"
+    proposals=$(jq --arg entry "$entry" --arg layer "$layer" --arg today "$(today)" '
+      .proposals += [{id: .next_id, layer: $layer, kind: "retire", entries: [$entry],
+        summary: "Retire \($entry), as the user asked",
+        change: "Remove the entry: drop its line from the layer index and reword mentions of it in the layer so they read without the link.",
+        status: "approved", source: "user", created: $today, updated: $today}]
+      | .next_id += 1' <<<"$proposals")
+  done
+  commit_proposals "Retire $* as the user asked ($(stamp))" <<<"$proposals"
+  apply_in_background
+  echo "Retiring $* in the background: \`/memex dream\` shows the result in a minute or two."
 }
 
 reject() {
@@ -250,18 +281,36 @@ reject() {
   echo "Declined proposal(s) $*: they will not be proposed again."
 }
 
-# Drops repeated links, and links to the entry itself, from a file's "Related:" lists:
-# repointing can leave "[[a]], [[a]]" or make an entry link to itself.
+# Drops repeated links, links to the entry itself and links to a dropped name from a
+# file's "Related:" lists: repointing can leave "[[a]], [[a]]" or a self link.
+# Usage: tidy_related <file> [name to drop]
 tidy_related() {
   perl -i -pe '
-    BEGIN { $self = shift @ARGV }
+    BEGIN { $self = shift @ARGV; $drop = shift @ARGV }
     if (/^(.*?Related:\s*)((?:\[\[[^\]]+\]\](?:,\s*)?)+)\s*$/) {
       my ($head, %seen) = ($1);
-      my @links = grep { my ($name) = /^\[\[([^\]|#]+)/; !$seen{$name}++ && $name ne $self }
+      my @links = grep { my ($name) = /^\[\[([^\]|#]+)/;
+        !$seen{$name}++ && $name ne $self && $name ne $drop }
         ($2 =~ /\[\[[^\]]+\]\]/g);
       if (@links) { $_ = $head . join(", ", @links) . "\n" }
       else { $head =~ s/\s*Related:\s*$//; $_ = $head =~ /^\s*-?\s*$/ ? "" : "$head\n" }
-    }' "$(basename "$1" .md)" "$1"
+    }' "$(basename "$1" .md)" "${2:-}" "$1"
+}
+
+# Removes links to a retired entry across the store: its index lines go, it leaves
+# "Related:" lists, and other mentions become plain text. Prints each file changed.
+unlink_links() {
+  local name=$1 file
+  while IFS= read -r -d '' file; do
+    tidy_related "$file" "$name"
+    perl -i -ne '
+      BEGIN { $name = shift @ARGV }
+      next if /^- \[\[\Q$name\E\]\]:/;
+      s/\[\[\Q$name\E\|([^\]]+)\]\]/$1/g;
+      s/\[\[\Q$name\E(#[^\]]*)?\]\]/$name/g;
+      print' "$name" "$file"
+    echo "${file#"$MEMEX_DIR"/}"
+  done < <(grep -rlZ -F "[[$name" --include='*.md' --exclude-dir='.*' "$MEMEX_DIR" || true)
 }
 
 # Repoints [[old]] links to [[new]] across the store; prints each file it changed.
@@ -293,7 +342,7 @@ record_results() {
 apply() {
   lock_store
   require_clean_store
-  local layer batch ids input output results absorbed into file
+  local layer batch ids input output results absorbed into retired file
   local layers=()
   readarray -t layers < <(read_proposals |
     jq -r '[.proposals[] | select(.status == "approved") | .layer] | unique[]')
@@ -321,6 +370,13 @@ apply() {
       done < <(jq -r --argjson results "$results" '.[] | select(.kind == "merge")
         | select(.id as $id | $results | any(.id == $id and .applied))
         | .into as $into | .entries[] | select(. != $into) | "\(.)\t\($into)"' <<<"$batch")
+      # An applied retirement leaves the file and outside links to this script too.
+      while IFS= read -r retired; do
+        [[ -f $MEMEX_DIR/$layer/$retired.md ]] || continue
+        while IFS= read -r file; do changed+=("$file"); done < <(unlink_links "$retired")
+        git -C "$MEMEX_DIR" rm -q -- "$layer/$retired.md"
+      done < <(jq -r --argjson results "$results" '.[] | select(.kind == "retire")
+        | select(.id as $id | $results | any(.id == $id and .applied)) | .entries[]' <<<"$batch")
       if "$MEMEX_SCRIPT" gate >/dev/null; then
         record_results "$batch" "$results" |
           commit_proposals "Apply dream proposals $ids to $layer ($(stamp))" "${changed[@]}"
@@ -346,9 +402,10 @@ main() {
     list) list "${1:-}" ;;
     approve) approve "$@" ;;
     reject) reject "$@" ;;
+    retire) retire "$@" ;;
     apply) apply ;;
     *)
-      echo "usage: dream.sh propose|list [owner]|approve <id>...|reject <id>...|apply" >&2
+      echo "usage: dream.sh propose|list [owner]|approve <id>...|reject <id>...|retire <entry>...|apply" >&2
       exit 64
       ;;
   esac

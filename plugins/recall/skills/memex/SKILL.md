@@ -1,7 +1,7 @@
 ---
 name: memex
-description: dixie's persistent memory of facts inferred from the session log, by scope (global, and one layer per owner). User-invoked only. Argument - `find <query>` (what do we know about…), `remember <fact>` (record a fact for memex), `check`, `dream [owner]` (consolidation proposals), `apply <ids>` or `reject <ids>`.
-argument-hint: "find <query> | remember <fact> | check | dream [owner] | apply <ids> | reject <ids>"
+description: dixie's persistent memory of facts inferred from the session log, by scope (global, and one layer per owner). User-invoked only. Argument - `find <query>` (what do we know about…), `remember <fact>` (record a fact for memex), `check`, `dream [owner]` (consolidation proposals), `apply <ids>`, `reject <ids>`, or `retire <entry>` (remove an obsolete entry).
+argument-hint: "find <query> | remember <fact> | check | dream [owner] | apply <ids> | reject <ids> | retire <entry>"
 disable-model-invocation: true
 context: fork
 model: sonnet
@@ -55,8 +55,8 @@ nothing.
 
 ## dream [owner]
 
-The sweep's dream pass proposes consolidations (merge, split, link, update, index);
-nothing changes until the user approves one.
+The sweep's dream pass proposes consolidations (merge, split, link, update, index,
+retire); nothing changes until the user approves one.
 `${CLAUDE_SKILL_DIR}/scripts/memex.sh dream [owner]` prints the proposals of the
 current scope (or of the owner the user named) and global, with what each changes.
 Show the output as printed.
@@ -68,3 +68,11 @@ The user's decision on proposals, by id. Run
 the ids the user gave, and relay the output. Never apply or reject on your own
 judgment, and never pick ids the user did not name. Applying runs in the background:
 `/memex dream` shows the outcome a minute or two later.
+
+## retire <entry>
+
+The user asks to remove an entry whose subject no longer exists. Run
+`${CLAUDE_SKILL_DIR}/scripts/memex.sh retire <entry>` with exactly the entry the user
+named (basename, e.g. `acme-old-api`), and relay the output. The entry is removed in
+the background, its links unlinked; its history stays in the log and in memex's git
+history. Never retire on your own judgment.

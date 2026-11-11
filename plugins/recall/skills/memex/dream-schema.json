@@ -7,17 +7,46 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": { "type": "string", "enum": ["merge", "split", "link", "update", "index"] },
-          "entries": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-          "into": { "type": "string" },
-          "summary": { "type": "string" },
-          "change": { "type": "string" }
+          "kind": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "split",
+              "link",
+              "update",
+              "index",
+              "retire"
+            ]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "into": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          }
         },
-        "required": ["kind", "entries", "summary", "change"],
+        "required": [
+          "kind",
+          "entries",
+          "summary",
+          "change"
+        ],
         "additionalProperties": false
       }
     }
   },
-  "required": ["proposals"],
+  "required": [
+    "proposals"
+  ],
   "additionalProperties": false
 }

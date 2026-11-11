@@ -9,6 +9,7 @@
 #        memex.sh dream [owner]        dream proposals of the scope (dream.sh list)
 #        memex.sh apply <id>...        approve proposals: applied in the background
 #        memex.sh reject <id>...       decline proposals
+#        memex.sh retire <entry>...    retire entries the user names (no proposal needed)
 #
 # Scope: a directory under ~/<Host>/<owner>/<repo> belongs to <owner> (the layout
 # of clones); anything else (home, scratch) is global. find searches the scope of
@@ -204,8 +205,9 @@ main() {
     dream) "$SKILL_DIR/scripts/dream.sh" list "${2:-}" ;;
     apply) shift; "$SKILL_DIR/scripts/dream.sh" approve "$@" ;;
     reject) shift; "$SKILL_DIR/scripts/dream.sh" reject "$@" ;;
+    retire) shift; "$SKILL_DIR/scripts/dream.sh" retire "$@" ;;
     *)
-      echo "usage: memex.sh scope|init|find|check|gate|dream|apply|reject" >&2
+      echo "usage: memex.sh scope|init|find|check|gate|dream|apply|reject|retire" >&2
       exit 64
       ;;
   esac

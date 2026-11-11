@@ -21,6 +21,9 @@ editing it. Apply each proposal as its `change` says:
 - `split`: create the new entries (`created` today; in an owner layer every name
   starts with `<owner>-`), move each fact with its `## Log` lines, link the entries
   both ways with `Related:`, and add the new ones to the index.
+- `retire`: drop the entry's line from the layer index and reword mentions of it in
+  the layer so they read without the link. Do not delete its file: a script removes
+  it and unlinks what remains after you.
 - `link`, `update`, `index`: make the edit described.
 
 A proposal that no longer fits the entries as they are now: skip it, change nothing

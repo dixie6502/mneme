@@ -50,7 +50,7 @@ subset of a plugin's skills, hence one plugin per job.
 | Skill | Answers | Writes | Reads | Invoked |
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
-| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject` |
+| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
 | `note` | what is being worked out | project `note/` | — | user only |
 | `todo` | what is left to do | `TODO.md` | — | `/todo`; when work leaves something open |
 | `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
@@ -227,7 +227,8 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 - `check`: `wkref check`, the upward-link rule, dead paths under `## Paths`,
   orphans (information only).
 - `dream [owner]`: the dream proposals of the scope and global (see Dream);
-  `apply <ids>` and `reject <ids>`: the user's decision on them.
+  `apply <ids>` and `reject <ids>`: the user's decision on them; `retire <entry>`:
+  the user removes an obsolete entry directly.
 
 ### Writing
 
@@ -261,24 +262,26 @@ Nothing in an entry changes until the user approves a proposal.
   read-only model run, following `dream-prompt.md` under `dream-schema.json`. It
   reads the layer (and global, for links) and returns at most 5 proposals: `merge`,
   `split`, `link`, `update` (summary or facts contradicting the entry's own log),
-  `index`. Hints computed by the script: orphans, entries over about a screen.
+  `index`, `retire` (an entry whose subject no longer exists). Hints computed by the script: orphans, entries over about a screen.
   Proposals the user declined are passed back, so they are never repeated.
 - **Store**: `~/memex/.dream/proposals.json`, committed with the store: id, layer,
   kind, entries, `into` (merges), a one-line summary, the precise change, and the
   status (`open`, `approved`, `applied`, `skipped`, `failed`, `rejected`).
 - **Decide**: `/memex dream` lists the scope's proposals; `/memex apply <ids>` or
   `/memex reject <ids>` is the user's decision, and the only trigger for a change.
+  `/memex retire <entry>` records an approved retirement the user asks for directly.
   `debrief` counts the proposals waiting under "Needs you".
 - **Apply**: in the background, one confined model run per layer
   (`apply-prompt.md`, `apply-schema.json`), editing that layer only. An applied
   merge leaves the absorbed entries to the script, which repoints links to them
   store-wide (dropping repeated and self links from `Related:` lists) and removes
-  them. Then the writers' gate: pass, commit; fail, `git stash` and the proposals
+  them. A retirement likewise: the script drops the entry's index lines, removes it
+  from `Related:` lists, turns other mentions into plain text, and removes the file. Then the writers' gate: pass, commit; fail, `git stash` and the proposals
   turn `failed`, to approve again or reject. A proposal that no longer fits is
   `skipped` with its reason.
 - Models: Sonnet, then Haiku when Sonnet's safeguards refuse a layer.
-- No `delete` kind: removing knowledge stays a merge, whose `## Log` keeps every
-  line.
+- A retired entry's history stays in the log, the transcripts and memex's git
+  history; whatever still matters is merged instead.
 
 ### Several hosts
 
