@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Print the /debrief report: what needs the user, what runs now, the log, projects.
 
-Usage: report.py [last|N] [filter]
-  last    log entries since the previous unfiltered debrief
+Usage: report.py [all] [last|N] [filter]
+  all     every project, even when run inside one
+  last    log entries since the previous `all` debrief
   N       the latest N log entries (default 3)
-  filter  substring of a project path (e.g. dixie6502/construct): that project in full
+  filter  substring of a project scope (e.g. dixie6502/construct): that project in full
+
+Run inside a clone or scratch topic without `all` or a filter, it is local: the
+filter is the current scope (as memo defines it), and "Needs you" adds the global
+scope's questions and actions.
 
 The report is markdown with a fixed layout; a section shows only when its data
 exists, so it works with any mix of the memo and memex plugins. Their files
@@ -35,8 +40,11 @@ DREAM_PROPOSALS = KNOWLEDGE_DIR / ".dream/proposals.json"
 RUN_LOG = HOME / ".cache/memex/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/memex/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
-# Data of memo's note skill: note/*.md at a project root, a `created:` frontmatter
-# date (else the file's mtime), stale after 28 days.
+# Data of the memo plugin: ~/memo/<scope>/TODO.md and note/*.md (a `created:`
+# frontmatter date, else the file's mtime, stale after 28 days), the sync log.
+MEMO_DIR = HOME / "memo"
+MEMO_SYNC_LOG = HOME / ".cache/memo/sync.log"
+GLOBAL_SCOPE = "global"
 STALE_NOTE_DAYS = 28
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
@@ -56,17 +64,12 @@ class TodoItem:
 
 @dataclass
 class Project:
-    """Everything known about one project, keyed by its path relative to $HOME."""
+    """Everything known about one project, keyed by its memo scope (owner/repo, ...)."""
 
-    path: str
+    name: str
     todo: dict[str, list[TodoItem]] = field(default_factory=dict)
     issues: list[dict] = field(default_factory=list)
     is_issues_unreadable: bool = False
-
-    @property
-    def name(self) -> str:
-        """Short display name: GitHub clones drop the host."""
-        return self.path.removeprefix("GitHub/")
 
 
 def clone_paths(pattern: str) -> list[Path]:
@@ -78,20 +81,60 @@ def clone_paths(pattern: str) -> list[Path]:
     )
 
 
+def scope_of(directory: Path) -> str:
+    """memo's scope of a directory: owner/repo in a clone, scratch/<topic>, else global."""
+    home = HOME.resolve()
+    common = run(
+        [
+            "git",
+            "-C",
+            str(directory),
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ]
+    ).strip()
+    if common:
+        clone = Path(common).parent
+        if clone.is_relative_to(home):
+            parts = clone.relative_to(home).parts
+            if len(parts) == 3 and parts[0] != "scratch":
+                return f"{parts[1]}/{parts[2]}"
+    directory = directory.resolve()
+    if directory.is_relative_to(home / "scratch"):
+        parts = directory.relative_to(home / "scratch").parts
+        if parts:
+            return f"scratch/{parts[0]}"
+    return GLOBAL_SCOPE
+
+
+def memo_scopes(pattern: str) -> list[tuple[str, Path]]:
+    """(scope, path) for each match of a glob in the memo store, e.g. `*/*/TODO.md`."""
+    matches = [*MEMO_DIR.glob(pattern), *MEMO_DIR.glob(f"{GLOBAL_SCOPE}/{pattern[4:]}")]
+    return sorted(
+        (str(path.relative_to(MEMO_DIR).parent), path)
+        for path in matches
+        if not path.relative_to(MEMO_DIR).parts[0].startswith(".")
+    )
+
+
 def run(command: list[str]) -> str:
     """Run a command and return its stdout, or "" if it fails."""
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     return result.stdout if result.returncode == 0 else ""
 
 
-def parse_arguments(arguments: list[str]) -> tuple[str, str]:
-    """Split the arguments into the log selection (last or N) and the filter."""
+def parse_arguments(arguments: list[str]) -> tuple[bool, str, str]:
+    """Split the arguments into `all`, the log selection (last or N) and the filter."""
+    is_all = bool(arguments) and arguments[0] == "all"
+    if is_all:
+        arguments = arguments[1:]
     selection = str(DEFAULT_ENTRIES_SHOWN)
     if arguments and (
         arguments[0] == "last" or re.fullmatch(r"[1-9]\d*", arguments[0])
     ):
         selection = arguments.pop(0)
-    return selection, " ".join(arguments)
+    return is_all, selection, " ".join(arguments)
 
 
 def read_todo(todo_file: Path) -> dict[str, list[TodoItem]]:
@@ -132,29 +175,35 @@ def read_issues(repo: str) -> tuple[list[dict], bool]:
 
 
 def collect_projects(project_filter: str) -> list[Project]:
-    """Projects with a TODO.md or a GitHub clone, matching the filter."""
+    """Projects with a TODO.md in the memo store or a GitHub clone, matching the filter."""
     projects: dict[str, Project] = {}
 
-    def project_at(path: str) -> Project:
-        return projects.setdefault(path, Project(path))
+    def project_at(scope: str) -> Project:
+        return projects.setdefault(scope, Project(scope))
 
-    for todo_file in [*clone_paths("*/*/*/TODO.md"), *clone_paths("scratch/*/TODO.md")]:
-        path = str(todo_file.parent.relative_to(HOME))
-        if project_filter in path:
-            project_at(path).todo = read_todo(todo_file)
+    for scope, todo_file in memo_scopes("*/*/TODO.md"):
+        if project_filter in scope:
+            project_at(scope).todo = read_todo(todo_file)
     clones = [
-        str(git.parent.relative_to(HOME)) for git in clone_paths("GitHub/*/*/.git")
+        str(git.parent.relative_to(HOME / "GitHub"))
+        for git in clone_paths("GitHub/*/*/.git")
     ]
-    clones = [path for path in clones if project_filter in path]
+    clones = [scope for scope in clones if project_filter in scope]
     with ThreadPoolExecutor() as pool:
-        results = pool.map(
-            lambda path: read_issues(path.removeprefix("GitHub/")), clones
-        )
-        for path, (issues, is_unreadable) in zip(clones, results, strict=True):
+        results = pool.map(read_issues, clones)
+        for scope, (issues, is_unreadable) in zip(clones, results, strict=True):
             if issues or is_unreadable:
-                project_at(path).issues = issues
-                project_at(path).is_issues_unreadable = is_unreadable
-    return sorted(projects.values(), key=lambda project: project.path)
+                project_at(scope).issues = issues
+                project_at(scope).is_issues_unreadable = is_unreadable
+    return sorted(projects.values(), key=lambda project: project.name)
+
+
+def read_global_project() -> list[Project]:
+    """The global scope's TODO.md, for "Needs you" in a local debrief."""
+    todo_file = MEMO_DIR / GLOBAL_SCOPE / "TODO.md"
+    if not todo_file.exists():
+        return []
+    return [Project(GLOBAL_SCOPE, todo=read_todo(todo_file))]
 
 
 def is_waiting_on_user(issue: dict) -> bool:
@@ -301,17 +350,12 @@ def note_age_days(note: Path) -> int:
 
 
 def render_stale_notes_line(project_filter: str) -> list[str]:
-    """One line listing projects with stale notes, to convert into docs or delete."""
-    roots = [
-        *(git.parent for git in clone_paths("*/*/*/.git")),
-        *clone_paths("scratch/*/"),
-    ]
+    """One line listing scopes with stale notes, to convert into docs or delete."""
     parts = []
-    for root in roots:
-        name = str(root.relative_to(HOME)).removeprefix("GitHub/")
+    for name, note_dir in memo_scopes("*/*/note"):
         if project_filter not in name:
             continue
-        ages = [note_age_days(note) for note in (root / "note").glob("*.md")]
+        ages = [note_age_days(note) for note in note_dir.glob("*.md")]
         stale = [age for age in ages if age > STALE_NOTE_DAYS]
         if stale:
             parts.append(f"`{name}` {len(stale)} (oldest {max(stale)} d)")
@@ -371,6 +415,28 @@ def render_knowledge_failures() -> list[str]:
         return []
     stash = "`git -C ~/knowledge stash list`"
     return [f"- Knowledge: {count} failed or interrupted write(s) kept in {stash}"]
+
+
+def render_memo_sync_line() -> list[str]:
+    """One line when the memo store is not synced: no remote, unpushed, or failing."""
+    if not (MEMO_DIR / ".git").exists():
+        return []
+    if not run(["git", "-C", str(MEMO_DIR), "remote"]).strip():
+        return ["- Memo: no remote, the store exists only on this host"]
+    parts = []
+    unpushed = run(
+        ["git", "-C", str(MEMO_DIR), "rev-list", "--count", "@{upstream}..HEAD"]
+    ).strip()
+    if unpushed != "0":
+        parts.append(f"{unpushed} unpushed commit(s)" if unpushed else "never pushed")
+    last_line = (
+        MEMO_SYNC_LOG.read_text().splitlines()[-1:] if MEMO_SYNC_LOG.exists() else []
+    )
+    if last_line and " error: " in last_line[0]:
+        parts.append("last sync failed: " + last_line[0].split(" error: ", 1)[1])
+    if not parts:
+        return []
+    return ["- Memo sync: " + " · ".join(parts)]
 
 
 def render_backup_line() -> list[str]:
@@ -460,9 +526,16 @@ def render_entry(entry: dict, is_in_full: bool) -> list[str]:
 
 def main() -> None:
     """Gather everything, print the report and the context, record the run."""
-    selection, project_filter = parse_arguments(sys.argv[1:])
+    is_all, selection, project_filter = parse_arguments(sys.argv[1:])
+    current_scope = scope_of(Path.cwd())
+    is_local = not is_all and not project_filter and current_scope != GLOBAL_SCOPE
+    if is_local:
+        project_filter = current_scope
     run_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    projects = collect_projects(project_filter)
+    projects = collect_projects(project_filter) or (
+        [Project(current_scope)] if is_local else []
+    )
+    needs_you_projects = projects + (read_global_project() if is_local else [])
     entries, log_title = read_log_entries(selection, project_filter)
     running = ([] if project_filter else collect_live_sessions()) + collect_local_state(
         project_filter
@@ -478,16 +551,13 @@ def main() -> None:
 
     add_section(
         "Needs you",
-        render_needs_you(projects)
+        render_needs_you(needs_you_projects)
         + render_memory_line(project_filter)
         + render_stale_notes_line(project_filter)
-        + (
-            []
-            if project_filter
-            else render_knowledge_failures()
-            + render_dream_line()
-            + render_backup_line()
-        ),
+        + render_memo_sync_line()
+        + render_knowledge_failures()
+        + render_dream_line()
+        + render_backup_line(),
     )
     add_section("Running now", running)
     if LOG_ENTRIES.exists() and (entries or selection == "last"):
