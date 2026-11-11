@@ -1,5 +1,5 @@
 {
-  "description": "Checks the format of a TODO.md managed by /todo after Claude edits it.",
+  "description": "Checks the format of a TODO.md managed by /todo after Claude edits it; syncs the memo store (~/memo) with its git remote at session start and end.",
   "hooks": {
     "PostToolUse": [
       {
@@ -10,6 +10,20 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/check-todo-after-edit.sh\"",
             "timeout": 10
           }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/memo.sh\" hook", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/memo.sh\" hook", "timeout": 10 }
         ]
       }
     ]

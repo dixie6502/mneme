@@ -1,39 +1,25 @@
 #!/usr/bin/env bash
-# Set up or list a project's fleeting notes: note/ at the project root,
-# git-ignored, never committed.
+# Set up or list a scope's fleeting notes: note/ in the scope's folder of the memo
+# store (see memo.sh), never inside a project repo.
 #
-# Usage: notes.sh init [dir]   create note/ (with .wikijump) and git-ignore it
+# Usage: notes.sh init [dir]   create note/ (with .wikijump); prints its path
 #        notes.sh list [dir]   one line per note: file, created, age in days, state
 #
-# [dir] defaults to the git root of the current directory, or the current
-# directory outside a repo (a scratch topic). A note is stale once older than
-# STALE_DAYS; its created date comes from the frontmatter, else the file's mtime.
-# Exit codes: 0 ok, 2 note/ holds tracked files (untrack them first), 64 usage.
+# [dir] is a scope folder of the store; it defaults to the current directory's.
+# A note is stale once older than STALE_DAYS; its created date comes from the
+# frontmatter, else the file's mtime. Exit codes: 0 ok, 64 usage.
 set -euo pipefail
 
 readonly NOTE_DIR_NAME=note
 readonly STALE_DAYS=28
 readonly SECONDS_PER_DAY=86400
+MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
+readonly MEMO_SCRIPT
 
-# Prints the default project root: git root of the current directory, else cwd.
-default_project_root() {
-  git rev-parse --show-toplevel 2>/dev/null || pwd
-}
-
-# Creates note/ and its wikilink marker, and keeps it out of git (local exclude,
-# so no commit lands in anyone's repo). Refuses when notes are already tracked.
+# Creates the store if needed, then note/ and its wikilink marker.
 init_notes() {
-  local root="$1" note_dir="$1/$NOTE_DIR_NAME"
-  if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
-    if [[ -n $(git -C "$root" ls-files -- "$NOTE_DIR_NAME") ]]; then
-      echo "$note_dir: holds files tracked by git; untrack them first (ask the user)" >&2
-      exit 2
-    fi
-    local exclude
-    exclude=$(git -C "$root" rev-parse --path-format=absolute --git-path info/exclude)
-    mkdir -p "$(dirname "$exclude")"
-    grep -qxF "/$NOTE_DIR_NAME/" "$exclude" 2>/dev/null || echo "/$NOTE_DIR_NAME/" >>"$exclude"
-  fi
+  local note_dir="$1/$NOTE_DIR_NAME"
+  "$MEMO_SCRIPT" init >/dev/null
   mkdir -p "$note_dir"
   touch "$note_dir/.wikijump"
   echo "$note_dir"
@@ -64,8 +50,8 @@ list_notes() {
 }
 
 main() {
-  local command="${1:-}"
-  local root="${2:-$(default_project_root)}"
+  local command="${1:-}" root="${2:-}"
+  [[ -n $root ]] || root=$("$MEMO_SCRIPT" dir)
   case $command in
     init) init_notes "$root" ;;
     list) list_notes "$root" ;;

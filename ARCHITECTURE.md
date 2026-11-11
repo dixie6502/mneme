@@ -5,11 +5,8 @@ what is known, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with three plugins, none depending on
 another.
 
-Status: being restructured (central `memo` store, `recall` renamed `memex`, the
-`memex` store renamed `knowledge`, local `debrief`). This document describes the
-target; the code still follows the previous layout until each plugin is migrated.
-The knowledge dream pass runs in propose mode: nothing changes without the user's
-approval. See `README.md`.
+Status: everything is built. The knowledge dream pass runs in propose mode:
+nothing changes without the user's approval. See `README.md`.
 
 ## Model
 
@@ -109,7 +106,7 @@ used to sit in clones.
 
 ```
 ~/memo/                       git repo, synced to a private remote
-  global/TODO.md              no project: home, the agent's own setup
+  global/TODO.md              no project: home, anywhere outside clones and scratch
   <owner>/<repo>/TODO.md
   <owner>/<repo>/todo/        item detail files, deleted with their item
   <owner>/<repo>/note/*.md
@@ -132,16 +129,16 @@ The store follows the user from host to host through its git remote, a private
 repository (GitHub now, a Forgejo host later). It holds every owner's items and
 notes in one repository, so the remote must stay private.
 
-- **Pull** at session start (`SessionStart` hook, detached): fetch and rebase local
-  commits onto the remote, under `flock ~/memo/.lock`.
-- **Commit and push** at session end (`SessionEnd` hook, detached): commit every
-  change in the store as `<host> · <UTC time>`, then push.
+- **One sync**, `memo.sh sync`, run detached by the `SessionStart` and `SessionEnd`
+  hooks under `flock ~/memo/.lock`: commit every change in the store as
+  `<host> · <UTC time>`, fetch, rebase local commits onto the remote, scan, push.
+  Running it at both ends picks up a session that crashed before its end.
 - **Secrets**: `gitleaks` scans each commit before the push; a finding blocks the
   push and leaves the commit local.
 - **Failures** (a rebase conflict, a refused push, a gitleaks finding) leave local
-  commits in place, abort any rebase, and write the reason to
-  `~/.cache/memo/sync.log`; `debrief` shows unpushed memo commits and the last
-  error. Conflicts are resolved by the user.
+  commits in place, abort any rebase, and append the reason to
+  `~/.cache/memo/sync.log` (one timestamped line per run); `debrief` shows unpushed
+  memo commits and the last error. Conflicts are resolved by the user.
 - **No remote configured**: local commits only; history still works, and
   `debrief` says the store is not synced.
 - `memo.sh init` creates the repository; adding the remote is the user's step.
@@ -413,8 +410,9 @@ model only adds a one-line "Where we are" from the log details (skipped when the
 machine has no log).
 
 - **Local or all**: run inside a clone or scratch topic, debrief is local: that
-  project in full, its log entries, and the global "Needs you". Run from home, or
-  as `/debrief all`, it covers every project.
+  project in full, its log entries, its "Needs you" plus the global scope's
+  questions and actions. Run from home, or as `/debrief all`, it covers every
+  project. Host-wide alerts (sync, knowledge writes, backup) show either way.
 - **Needs you**: `You` items from every `TODO.md` in the store (questions first),
   issues labelled `user`, Claude auto memory folders holding notes to promote,
   scopes with stale notes, failed or interrupted knowledge writes, a memo store
@@ -489,13 +487,15 @@ identically. The sweep backs up all three, encrypted, after filing knowledge.
 
 ## Migration
 
-From the previous layout, once per host; scripts in the repo, run by the user.
+From the previous layout, once per host, with the scripts in `migrate/`.
 
-- `~/memex` → `~/knowledge`; `~/.cache/recall/` → `~/.cache/memex/`, with the
-  `memex-filed` and `memex-dreamed` markers renamed `knowledge-*`;
-  `RECALL_BACKUP_*` → `MEMEX_BACKUP_*` in Claude Code's `env` settings.
-- Each clone's `TODO.md` and `note/` → `~/memo/<owner>/<repo>/`, with `tmp/`
-  detail files moved to `todo/` and their links rewritten; scratch topics and
-  `construct/TODO.md` (→ `global/`) likewise. Tracked files are left for the user
-  to remove from their repo.
-- Plugins reinstalled: `recall@mneme` uninstalled, `memex@mneme` installed.
+- `memex.sh`: `~/memex` → `~/knowledge`; `~/.cache/recall/` → `~/.cache/memex/`,
+  with the `memex-filed` and `memex-dreamed` markers renamed `knowledge-*`; the
+  store's rules refreshed and committed. Then `RECALL_BACKUP_*` → `MEMEX_BACKUP_*`
+  in Claude Code's `env` settings, and `recall@mneme` replaced by `memex@mneme`.
+- `memo.sh [--dry-run]`: each managed `TODO.md` and `note/` of a clone or scratch
+  topic → `~/memo/<scope>/`, by the scope rule (so `construct/TODO.md` goes to
+  `dixie6502/construct`, and `global/` starts empty). Detail files linked under
+  `tmp/` are copied to `todo/` and the links rewritten. Untracked files move;
+  tracked files and anything in `~/scratch` are copied and left for the user to
+  remove. An existing target is never overwritten.

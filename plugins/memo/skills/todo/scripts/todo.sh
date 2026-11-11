@@ -4,8 +4,8 @@
 # Usage: todo.sh init  [file]   create the file from the template
 #        todo.sh check [file]   check the format, list ticked items
 #
-# [file] defaults to TODO.md at the git root of the current directory, or in the
-# current directory outside a repo.
+# [file] defaults to TODO.md in the memo store folder of the current directory's
+# scope (see memo.sh).
 # Exit codes: 0 ok, 1 format errors, 2 file missing / not managed / already exists,
 # 64 usage error.
 set -euo pipefail
@@ -13,12 +13,14 @@ set -euo pipefail
 readonly MANAGED_MARKER="<!-- managed by /todo -->"
 readonly TITLE="# TODO"
 readonly SECTION_ORDER=(You Now Next Later)
+MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
+readonly MEMO_SCRIPT
 
-# Prints the default TODO.md path: git root of the current directory, else cwd.
+# Prints the default TODO.md path: the current scope's folder in the memo store.
 default_todo_path() {
-  local root
-  root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-  echo "$root/TODO.md"
+  local scope_dir
+  scope_dir=$("$MEMO_SCRIPT" dir)
+  echo "$scope_dir/TODO.md"
 }
 
 # True when the file's first line is the marker.
@@ -39,6 +41,8 @@ init_todo() {
     fi
     exit 2
   fi
+  "$MEMO_SCRIPT" init >/dev/null
+  mkdir -p "$(dirname "$todo_file")"
   {
     echo "$MANAGED_MARKER"
     echo "$TITLE"
@@ -130,8 +134,8 @@ check_todo() {
 }
 
 main() {
-  local command="${1:-}"
-  local todo_file="${2:-$(default_todo_path)}"
+  local command="${1:-}" todo_file="${2:-}"
+  [[ -n $todo_file ]] || todo_file=$(default_todo_path)
   case $command in
     init) init_todo "$todo_file" ;;
     check) check_todo "$todo_file" ;;

@@ -1,9 +1,9 @@
 ---
 name: note
-description: Fleeting notes for the current project, written only on the user's request - research, design, work in progress - kept in a git-ignored note/ folder until converted into the project's docs. User-invoked only. Argument - `<title>[: what to capture]`, `list`, `check`, `convert <note>` or `delete <note>`.
+description: Fleeting notes for the current project, written only on the user's request - research, design, work in progress - kept in the memo store (~/memo), outside the repo, until converted into the project's docs. User-invoked only. Argument - `<title>[: what to capture]`, `list`, `check`, `convert <note>` or `delete <note>`.
 argument-hint: "<title>[: what] | list | check | convert <note> | delete <note>"
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/notes.sh *), Bash(wkref *)
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/notes.sh *), Bash(wkref *), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
 ---
 
 # Note
@@ -11,10 +11,10 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/notes.sh *), Bash(wkref *)
 Request: $ARGUMENTS
 
 A note is fleeting: it exists to be turned into the project's docs, which do not
-exist yet and are written from the notes later. Notes live in `note/` at the project
-root (git root, else the current directory, e.g. a scratch topic), are git-ignored
-and never committed. Their content is safe anyway: it is written in a session, so it
-is in the transcript.
+exist yet and are written from the notes later. Notes live in `note/` in the current
+scope's folder of the memo store (`~/memo/<owner>/<repo>/note` in a clone,
+`~/memo/scratch/<topic>/note` in a scratch topic, else `~/memo/global/note`), never in
+a project repo. The store is versioned and synced by the memo plugin's hooks.
 
 ## Format
 
@@ -39,8 +39,7 @@ Related: [[other-note]]
 ## Operations
 
 - **Write** (`<title>[: what to capture]`):
-  1. `${CLAUDE_SKILL_DIR}/scripts/notes.sh init`. It prints the note folder. Exit 2
-     (notes tracked by git): relay its message and stop.
+  1. `${CLAUDE_SKILL_DIR}/scripts/notes.sh init`. It prints the note folder.
   2. Note with that slug exists: update it with the new content, keep `created`.
      Otherwise create it from the format above.
   3. Content: what the user asked to capture, from the request and the session.
@@ -64,5 +63,5 @@ Related: [[other-note]]
 ## Never
 
 - Create, convert or delete a note unless the user asked in this session.
-- Commit a note, or move it outside the project.
+- Commit the store, or write a note into a project repo.
 - Rename or delete with plain `mv` / `rm`: use `wkref mv` / `wkref rm`.

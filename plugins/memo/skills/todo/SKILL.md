@@ -1,8 +1,8 @@
 ---
 name: todo
-description: Track the current project's open items in its TODO.md - init, convert, add, answer, finish, reorder, check and fix. Use whenever work leaves something open (a todo, a bug, a question or an action for the user), when the user answers or ticks an item, before a session ends, or when the user asks "what's next". Acts only on a TODO.md managed by /todo. Argument, if any, is an optional `@path/TODO.md` then what to do (e.g. "init", "convert", "add ...", "check").
+description: Track the current project's open items in its TODO.md, kept in the memo store (~/memo), outside the repo - init, convert, add, answer, finish, reorder, check and fix. Use whenever work leaves something open (a todo, a bug, a question or an action for the user), when the user answers or ticks an item, before a session ends, or when the user asks "what's next". Acts only on a TODO.md managed by /todo. Argument, if any, is an optional `@path/TODO.md` then what to do (e.g. "init", "convert", "add ...", "check").
 argument-hint: "[@path/TODO.md] [init|convert|check|fix|add ...]"
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *)
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *), Bash(${CLAUDE_SKILL_DIR}/../../scripts/memo.sh dir *), Bash(${CLAUDE_SKILL_DIR}/../../scripts/memo.sh scope *), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
 ---
 
 # TODO
@@ -12,9 +12,11 @@ Request: $ARGUMENTS
 ## Target file
 
 - First argument ending in `.md` (leading `@` optional): that file. Edit a file outside
-  the current project only when the user names it this way.
-- Otherwise: `TODO.md` at the git root of the current directory, or in the current
-  directory outside a repo. This is the script's default when no file is passed.
+  the current scope only when the user names it this way.
+- Otherwise: `TODO.md` in the current scope's folder of the memo store, printed by
+  `${CLAUDE_SKILL_DIR}/../../scripts/memo.sh dir` (`~/memo/<owner>/<repo>` in a clone,
+  `~/memo/scratch/<topic>` in a scratch topic, else `~/memo/global`). This is the
+  script's default when no file is passed. Never write a `TODO.md` into a repo.
 
 A file is managed when its first line is `<!-- managed by /todo -->`. Never edit an
 unmanaged `TODO.md`, except through `convert`.
@@ -49,24 +51,26 @@ unasked.
 
 - Sections in this order: `You`, `Now`, `Next`, `Later`. Empty ones may stay or go.
 - One line per item, as an instruction or a question. Longer detail goes in a detail
-  file under `tmp/` (git-ignored) that the item links to, whether or not `TODO.md` is
-  version-controlled.
+  file under `todo/` next to `TODO.md`, linked from the item by its relative path
+  (`todo/<slug>.md`).
 - When adding an item, the user may name an existing note it relates to: link it from
   the item. Never create a note for an item.
 - `You` items start with `?` (question, with the recommended answer when there is one)
   or `!` (action).
 - `Now` holds one item at most.
-- No `Done` section: a finished item is deleted; git history records it.
+- No `Done` section: a finished item is deleted; the store's git history records it.
 
 ## Operations
 
 - **Init:** `todo.sh init [file]`. Refuses an existing file.
-- **Convert** an existing unmanaged `TODO.md`:
+- **Convert** an existing unmanaged `TODO.md` (the target, or one the user names,
+  e.g. in a repo) into the managed target in the store:
   1. Read it. Map each open item to a section, keeping its wording; drop done items.
   2. Content that is not an item (prose, other headings, unclear status): ask the user
-     where it goes, or whether to move it to a detail file in `tmp/`.
+     where it goes, or whether to move it to a detail file in `todo/`.
   3. Show the full converted file and wait for the user's confirmation.
-  4. Write it with the marker as first line, then run `check` until it passes.
+  4. Write it with the marker as first line, then run `check` until it passes. A
+     source file in a repo is left for the user to remove.
 - **What's next:** answer in a few lines: the `Now` item, else the first `Next` item;
   the `You` items blocking it, then the other `You` items, questions first; the count of
   remaining `Next` and `Later` items. Nothing open: say so.
@@ -75,12 +79,12 @@ unasked.
 - **Answer:** the user answers on the item's line (`→ yes`), ticks it (`[x]`), or answers
   in the session. Act on it, then delete the item.
 - **Finish:** delete the item; if it was `Now`, move the first `Next` item up. Delete
-  its detail file in `tmp/` too, after moving any lasting content to `README.md` or
-  `ARCHITECTURE.md`. A linked note is left as it is.
+  its detail file in `todo/` too, after moving any lasting content to the project's
+  `README.md` or `ARCHITECTURE.md`. A linked note is left as it is.
 - **Reorder:** move items when priorities change. Never reword the user's items.
 - **Check / fix:** `todo.sh check [file]` prints each format error with its line number
   and lists ticked items waiting for removal. Fix by hand, keeping the wording, and
   rerun until it passes.
 
-Run `check` after every edit. Committing `TODO.md` follows the project's git workflow,
-not this skill.
+Run `check` after every edit. Never commit the store: the memo plugin's hooks commit
+and sync it at session start and end.

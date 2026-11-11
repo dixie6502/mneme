@@ -10,7 +10,7 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 | Plugin | Job | Skills |
 |---|---|---|
-| `memo` | what is left to do, what is being worked out | todo, note |
+| `memo` | what is left to do, what is being worked out, in `~/memo` | todo, note |
 | `memex` | memory: log and knowledge, written from transcripts | log, knowledge |
 | `debrief` | where things stand, from whatever data exists | debrief, sessions |
 
@@ -20,13 +20,16 @@ None depends on another; the full system is all three.
 
 ```
 claude plugin marketplace add dixie6502/mneme
-claude plugin install memo@mneme      # open items and notes
+claude plugin install memo@mneme      # open items and notes (~/memo)
 claude plugin install memex@mneme     # memory: log, knowledge, backup
 claude plugin install debrief@mneme   # overview and live sessions
 ```
 
 Do not enable `memo@mneme` next to another plugin that ships a `todo` skill: both
-would manage the same `TODO.md`. `note` needs `wkref` for its links. `memex` writes
+would manage open items. `note` needs `wkref` for its links. `memo` keeps every
+`TODO.md` and note in `~/memo`, a git repo outside the clones; to sync it between
+hosts, give it a private remote (`git -C ~/memo remote add origin <url>`): its hooks
+commit, pull, scan with `gitleaks` and push at session start and end. `memex` writes
 its log to `~/log` and its state to `~/.cache/memex/`; `debrief` keeps its last run
 in `~/.cache/debrief/`. Both expect clones at `~/<Host>/<owner>/<repo>`.
 
@@ -35,12 +38,15 @@ push encrypted archives to) and `MEMEX_BACKUP_RECIPIENTS` (an age recipients fil
 holding public keys only) in the `env` of your Claude Code settings. Design and
 restore: `ARCHITECTURE.md` › Backup.
 
-## Migrate from `recall`
+## Migrate from the previous layout
 
-Once per host, with no session writing: run `migrate/memex.sh` from the clone. It
-moves `~/memex` to `~/knowledge` and `~/.cache/recall` to `~/.cache/memex`, then
-prints the remaining steps (reinstall the plugin, rename the `RECALL_BACKUP_*`
-settings).
+Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
+
+- `migrate/memex.sh`, with no session writing: moves `~/memex` to `~/knowledge`
+  and `~/.cache/recall` to `~/.cache/memex`, then prints the remaining steps
+  (reinstall the plugin, rename the `RECALL_BACKUP_*` settings).
+- `migrate/memo.sh --dry-run`, then without `--dry-run`: moves each project's
+  `TODO.md` and `note/` into `~/memo`.
 
 ## Develop
 
