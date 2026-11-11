@@ -5,8 +5,8 @@ what is true, what is being worked out, what is left to do, and where things
 stand. It ships as a Claude Code marketplace with three plugins, none depending on
 another.
 
-Status: everything is built except memex consolidation (the dream pass), which is on
-hold.
+Status: everything is built. The memex dream pass runs in propose mode: nothing
+changes without the user's approval.
 See `README.md`.
 
 ## Model
@@ -50,7 +50,7 @@ subset of a plugin's skills, hence one plugin per job.
 | Skill | Answers | Writes | Reads | Invoked |
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
-| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check` |
+| `memex` | what is true | `~/memex` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject` |
 | `note` | what is being worked out | project `note/` | — | user only |
 | `todo` | what is left to do | `TODO.md` | — | `/todo`; when work leaves something open |
 | `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
@@ -154,6 +154,7 @@ directly by a session.
 ~/memex/                local git repo, created by the writer's first run
   .wikijump
   CLAUDE.md             rules of the store
+  .dream/proposals.json consolidation proposals and their status
   global/
     global.md           #moc index
     <hostname>.md       one entry per host
@@ -225,6 +226,8 @@ deterministic parts (`scope`, `init`, `find`, `check`).
   flags facts that belong elsewhere.
 - `check`: `wkref check`, the upward-link rule, dead paths under `## Paths`,
   orphans (information only).
+- `dream [owner]`: the dream proposals of the scope and global (see Dream);
+  `apply <ids>` and `reject <ids>`: the user's decision on them.
 
 ### Writing
 
@@ -245,9 +248,37 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 - **Gate**: names, `wkref check` and upward links pass, and nothing changed
   outside the layer. Pass: commit (local only). Fail: the attempt goes to `git
   stash`, the scope retries next run, and `debrief` shows the failure.
-- Consolidation (the "dream" pass: dedupe, merge, link orphans) is not built: on
-  hold until the user says go. Planned in propose mode first: proposals kept in
-  memex, listed by `debrief`.
+- `scripts/writer.sh` holds what the writers share: the confined model run, the
+  outside-the-layer check, the layer's entry list.
+
+### Dream
+
+Consolidation in propose mode: `scripts/dream.sh`, run by the sweep after filing.
+Nothing in an entry changes until the user approves a proposal.
+
+- **Propose**: each layer changed since its last dream (marker per layer in
+  `~/.cache/recall/log/memex-dreamed/`) and with no proposal pending gets one
+  read-only model run, following `dream-prompt.md` under `dream-schema.json`. It
+  reads the layer (and global, for links) and returns at most 5 proposals: `merge`,
+  `split`, `link`, `update` (summary or facts contradicting the entry's own log),
+  `index`. Hints computed by the script: orphans, entries over about a screen.
+  Proposals the user declined are passed back, so they are never repeated.
+- **Store**: `~/memex/.dream/proposals.json`, committed with the store: id, layer,
+  kind, entries, `into` (merges), a one-line summary, the precise change, and the
+  status (`open`, `approved`, `applied`, `skipped`, `failed`, `rejected`).
+- **Decide**: `/memex dream` lists the scope's proposals; `/memex apply <ids>` or
+  `/memex reject <ids>` is the user's decision, and the only trigger for a change.
+  `debrief` counts the proposals waiting under "Needs you".
+- **Apply**: in the background, one confined model run per layer
+  (`apply-prompt.md`, `apply-schema.json`), editing that layer only. An applied
+  merge leaves the absorbed entries to the script, which repoints links to them
+  store-wide (dropping repeated and self links from `Related:` lists) and removes
+  them. Then the writers' gate: pass, commit; fail, `git stash` and the proposals
+  turn `failed`, to approve again or reject. A proposal that no longer fits is
+  `skipped` with its reason.
+- Models: Sonnet, then Haiku when Sonnet's safeguards refuse a layer.
+- No `delete` kind: removing knowledge stays a merge, whose `## Log` keeps every
+  line.
 
 ### Several hosts
 
@@ -321,8 +352,8 @@ machine has no log).
 Interfaces it reads, each owned by its plugin: `TODO.md` (format of `memo`'s
 todo), `note/*.md` with a `created:` date, stale after 28 days (`memo`'s note),
 `~/log/entries.jsonl` (`schema.json` of `log`), `~/memex` git history and stash,
-and `~/.cache/recall/log/last-backup` (`recall`). A change to one of them
-changes debrief too.
+`~/memex/.dream/proposals.json` and `~/.cache/recall/log/last-backup` (`recall`).
+A change to one of them changes debrief too.
 
 ### sessions: what runs now
 

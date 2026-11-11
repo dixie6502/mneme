@@ -6,6 +6,9 @@
 #        memex.sh find <regex> [owner] matching entries in global and one owner
 #        memex.sh check                links, upward-only rule, dead paths, orphans
 #        memex.sh gate                 links and upward-only rule only (writer's gate)
+#        memex.sh dream [owner]        dream proposals of the scope (dream.sh list)
+#        memex.sh apply <id>...        approve proposals: applied in the background
+#        memex.sh reject <id>...       decline proposals
 #
 # Scope: a directory under ~/<Host>/<owner>/<repo> belongs to <owner> (the layout
 # of clones); anything else (home, scratch) is global. find searches the scope of
@@ -198,8 +201,11 @@ main() {
       ;;
     check) check_store ;;
     gate) gate_store ;;
+    dream) "$SKILL_DIR/scripts/dream.sh" list "${2:-}" ;;
+    apply) shift; "$SKILL_DIR/scripts/dream.sh" approve "$@" ;;
+    reject) shift; "$SKILL_DIR/scripts/dream.sh" reject "$@" ;;
     *)
-      echo "usage: memex.sh scope|init|find|check|gate" >&2
+      echo "usage: memex.sh scope|init|find|check|gate|dream|apply|reject" >&2
       exit 64
       ;;
   esac

@@ -1,7 +1,7 @@
 ---
 name: memex
-description: dixie's persistent memory of facts inferred from the session log, by scope (global, and one layer per owner). User-invoked only. Argument - `find <query>` (what do we know about…), `remember <fact>` (record a fact for memex), or `check`.
-argument-hint: "find <query> | remember <fact> | check"
+description: dixie's persistent memory of facts inferred from the session log, by scope (global, and one layer per owner). User-invoked only. Argument - `find <query>` (what do we know about…), `remember <fact>` (record a fact for memex), `check`, `dream [owner]` (consolidation proposals), `apply <ids>` or `reject <ids>`.
+argument-hint: "find <query> | remember <fact> | check | dream [owner] | apply <ids> | reject <ids>"
 disable-model-invocation: true
 context: fork
 model: sonnet
@@ -15,7 +15,8 @@ Request: $ARGUMENTS
 memex holds facts inferred from the session log, in `~/memex`: `global/` (the agent,
 its hosts, devices, tools) and one folder per owner (`~/<Host>/<owner>/` clones).
 It is derived only: the recall plugin's sweep writes it from the log. This skill
-reads it and never writes an entry.
+never edits an entry itself: approved dream proposals are applied by a confined
+writer script.
 
 Scope: `${CLAUDE_SKILL_DIR}/scripts/memex.sh scope` prints the current directory's
 owner, or `global` for home and scratch. A session sees its owner's layer and
@@ -51,3 +52,19 @@ transcript into the session's log entry, and the sweep files it into memex.
 `${CLAUDE_SKILL_DIR}/scripts/memex.sh check`: wikilinks, the upward-only link rule,
 dead paths under `## Paths`, orphans (information only). Report the result; fix
 nothing.
+
+## dream [owner]
+
+The sweep's dream pass proposes consolidations (merge, split, link, update, index);
+nothing changes until the user approves one.
+`${CLAUDE_SKILL_DIR}/scripts/memex.sh dream [owner]` prints the proposals of the
+current scope (or of the owner the user named) and global, with what each changes.
+Show the output as printed.
+
+## apply <ids> / reject <ids>
+
+The user's decision on proposals, by id. Run
+`${CLAUDE_SKILL_DIR}/scripts/memex.sh apply <ids>` or `... reject <ids>` with exactly
+the ids the user gave, and relay the output. Never apply or reject on your own
+judgment, and never pick ids the user did not name. Applying runs in the background:
+`/memex dream` shows the outcome a minute or two later.

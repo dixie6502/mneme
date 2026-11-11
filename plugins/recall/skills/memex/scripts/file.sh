@@ -12,6 +12,8 @@ SKILL_DIR=$(dirname "$SCRIPT_DIR")
 LOG_SCRIPTS="$SKILL_DIR/../log/scripts"
 # shellcheck source=../../log/scripts/common.sh
 source "$LOG_SCRIPTS/common.sh"
+# shellcheck source=writer.sh
+source "$SCRIPT_DIR/writer.sh"
 readonly MEMEX_SCRIPT="$SCRIPT_DIR/memex.sh"
 MEMEX_DIR=$("$MEMEX_SCRIPT" init)
 readonly MEMEX_DIR
@@ -62,11 +64,6 @@ while IFS= read -r entry; do
     <<<"$entry")$'\n'
 done <"$ENTRIES"
 
-# Prints the store-relative paths of a layer's entries.
-layer_entries() {
-  (cd "$MEMEX_DIR" && find "$1" -name '*.md' | sort | jq -R . | jq -s -c .)
-}
-
 # Global first, so owner layers can link to entries it just created.
 readarray -t scopes < <(printf '%s\n' "${!items_by_scope[@]}" |
   awk '$0 == "global" { print; next } { rest = rest $0 "\n" } END { printf "%s", rest }')
@@ -74,7 +71,6 @@ failed=0
 for scope in "${scopes[@]}"; do
   scope_failed=0
   "$MEMEX_SCRIPT" init "$scope" >/dev/null
-  layer_dir="$MEMEX_DIR/$scope"
   readarray -t items < <(grep . <<<"${items_by_scope[$scope]}")
   for ((start = 0; start < ${#items[@]}; start += MAX_ITEMS_PER_RUN)); do
     chunk=$(printf '%s\n' "${items[@]:start:MAX_ITEMS_PER_RUN}")
@@ -83,16 +79,9 @@ for scope in "${scopes[@]}"; do
       --argjson own "$(layer_entries "$scope")" --argjson global "$(layer_entries global)" \
       '{layer: $layer, today: $today, host: $host,
         entries: {($layer): $own, global: $global}, log: map(del(.line))}' <<<"$chunk")
-    # Working directory = the layer: reads elsewhere need a rule, so other owners'
-    # layers stay unreadable; writes are allowed in the layer only.
-    (cd "$layer_dir" && env "$WRITER_GUARD=1" claude -p "$(<"$SKILL_DIR/file-prompt.md")" \
-      --model sonnet --no-session-persistence --permission-mode dontAsk \
-      --tools Read Edit Write \
-      --allowedTools "Read(//${layer_dir#/}/**)" "Edit(//${layer_dir#/}/**)" \
-      "Read(//${MEMEX_DIR#/}/global/**)" \
-      <<<"$input") || true
+    run_in_layer edit sonnet "$scope" "$SKILL_DIR/file-prompt.md" "$input" || true
     # Permissions confine writes to the layer; this check is the second line.
-    outside=$(git -C "$MEMEX_DIR" status --porcelain -- . ":(exclude)$scope")
+    outside=$(changes_outside "$scope")
     if [[ -z $outside ]] && "$MEMEX_SCRIPT" gate >/dev/null; then
       git -C "$MEMEX_DIR" add -- "$scope"
       git -C "$MEMEX_DIR" diff --cached --quiet ||

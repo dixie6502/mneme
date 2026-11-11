@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "applied": { "type": "boolean" },
+          "reason": { "type": "string" }
+        },
+        "required": ["id", "applied"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["results"],
+  "additionalProperties": false
+}

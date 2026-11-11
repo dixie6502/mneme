@@ -31,6 +31,7 @@ LAST_DEBRIEF_FILE = HOME / ".cache/debrief/last-run"
 # Data of the recall plugin, read when present: the log, memex, backup state.
 LOG_ENTRIES = HOME / "log/entries.jsonl"
 MEMEX_DIR = HOME / "memex"
+DREAM_PROPOSALS = MEMEX_DIR / ".dream/proposals.json"
 RUN_LOG = HOME / ".cache/recall/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/recall/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
@@ -338,6 +339,29 @@ def render_memex_changes() -> list[str]:
     return [f"- `{entry}`" for entry in entries]
 
 
+def render_dream_line() -> list[str]:
+    """One line when memex dream proposals wait for the user: to review, or failed."""
+    if not DREAM_PROPOSALS.exists():
+        return []
+    proposals = json.loads(DREAM_PROPOSALS.read_text()).get("proposals", [])
+    to_review: dict[str, int] = {}
+    for proposal in proposals:
+        if proposal.get("status") == "open":
+            to_review[proposal["layer"]] = to_review.get(proposal["layer"], 0) + 1
+    failed = sum(1 for proposal in proposals if proposal.get("status") == "failed")
+    parts = []
+    if to_review:
+        layers = ", ".join(
+            f"{layer} {count}" for layer, count in sorted(to_review.items())
+        )
+        parts.append(f"{sum(to_review.values())} to review ({layers})")
+    if failed:
+        parts.append(f"{failed} failed to apply")
+    if not parts:
+        return []
+    return [f"- Memex dream: {' · '.join(parts)}: `/memex dream [owner]`"]
+
+
 def render_memex_failures() -> list[str]:
     """One line when filings into memex failed their check (attempts kept in stash)."""
     if not (MEMEX_DIR / ".git").exists():
@@ -456,7 +480,11 @@ def main() -> None:
         render_needs_you(projects)
         + render_memory_line(project_filter)
         + render_stale_notes_line(project_filter)
-        + ([] if project_filter else render_memex_failures() + render_backup_line()),
+        + (
+            []
+            if project_filter
+            else render_memex_failures() + render_dream_line() + render_backup_line()
+        ),
     )
     add_section("Running now", running)
     if LOG_ENTRIES.exists() and (entries or selection == "last"):

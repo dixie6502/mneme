@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "proposals": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["merge", "split", "link", "update", "index"] },
+          "entries": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "into": { "type": "string" },
+          "summary": { "type": "string" },
+          "change": { "type": "string" }
+        },
+        "required": ["kind", "entries", "summary", "change"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["proposals"],
+  "additionalProperties": false
+}
