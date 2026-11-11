@@ -47,7 +47,7 @@ scope_of_entry() {
   esac
 }
 
-declare -A items_by_scope
+declare -A items_by_scope=()
 line_number=0
 while IFS= read -r entry; do
   line_number=$((line_number + 1))
@@ -63,6 +63,7 @@ while IFS= read -r entry; do
     topic, repos, found: [.found[].text], decided, remember: (.remember // [])}' \
     <<<"$entry")$'\n'
 done <"$ENTRIES"
+((${#items_by_scope[@]})) || exit 0
 
 # Global first, so owner layers can link to entries it just created.
 readarray -t scopes < <(printf '%s\n' "${!items_by_scope[@]}" |
