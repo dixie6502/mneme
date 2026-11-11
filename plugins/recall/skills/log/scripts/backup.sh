@@ -19,6 +19,29 @@ readonly ZSTD_LEVEL=19
 
 fail() { echo "backup: $1" >&2; exit 1; }
 
+# Pulls, then pushes the clone's commits.
+push_backup() {
+  git -C "$BACKUP_DIR" pull -q --rebase
+  git -C "$BACKUP_DIR" push -q
+}
+
+# A run cut short (a shutdown) can leave a half-written archive, a finished one not
+# committed, or a commit not pushed. Deletes the first, commits the second; the
+# push of this run carries both commits.
+recover_interrupted_run() {
+  rm -f "$BACKUP_DIR/$host"/*.partial
+  local untracked=() finished=()
+  readarray -t untracked < <(git -C "$BACKUP_DIR" ls-files --others --exclude-standard \
+    -- "$host/*.tar.zst.age")
+  ((${#untracked[@]} == 0)) || git -C "$BACKUP_DIR" add -- "${untracked[@]}"
+  # Staged too: a run can stop between add and commit.
+  readarray -t finished < <(git -C "$BACKUP_DIR" diff --cached --name-only -- "$host")
+  ((${#finished[@]})) || return 0
+  git -C "$BACKUP_DIR" commit -q -m "Back up $host (finish an interrupted run)" \
+    -- "${finished[@]}"
+  echo "backup: committed ${#finished[@]} archive(s) left by an interrupted run"
+}
+
 [[ -n $BACKUP_DIR && -n $BACKUP_RECIPIENTS ]] ||
   fail "not configured: set RECALL_BACKUP_DIR and RECALL_BACKUP_RECIPIENTS"
 [[ -d $BACKUP_DIR/.git ]] || fail "$BACKUP_DIR is not a git clone"
@@ -42,6 +65,8 @@ flock 7
 run_start=$(mktemp "$STATE_DIR/backup-start.XXXXXX")
 file_list=$(mktemp)
 host=$(hostname -s)
+mkdir -p "$BACKUP_DIR/$host"
+recover_interrupted_run
 archive="$host/$(date -u +%Y-%m-%dT%H%M%SZ).tar.zst.age"
 archive_path="$BACKUP_DIR/$archive"
 trap 'rm -f "$run_start" "$file_list" "$archive_path.partial"' EXIT
@@ -51,6 +76,7 @@ changed_since=()
 (cd "$HOME" && find "${sources[@]}" -type f "${changed_since[@]}" ! -name '*.lock' -print0) \
   >"$file_list"
 if [[ ! -s $file_list ]]; then
+  [[ $(git -C "$BACKUP_DIR" rev-list --count '@{upstream}..HEAD') == 0 ]] || push_backup
   mv "$run_start" "$LAST_BACKUP_FILE"
   echo "backup: nothing changed"
   exit 0
@@ -62,13 +88,11 @@ pack() {
   tar -C "$HOME" --null -T "$file_list" --ignore-failed-read \
     --warning=no-file-changed -cf - || (($? == 1))
 }
-mkdir -p "$BACKUP_DIR/$host"
 pack | zstd -q -"$ZSTD_LEVEL" -T0 | age -R "$BACKUP_RECIPIENTS" -o "$archive_path.partial"
 mv "$archive_path.partial" "$archive_path"
 
 git -C "$BACKUP_DIR" add -- "$archive"
 git -C "$BACKUP_DIR" commit -q -m "Back up $host" -- "$archive"
-git -C "$BACKUP_DIR" pull -q --rebase
-git -C "$BACKUP_DIR" push -q
+push_backup
 mv "$run_start" "$LAST_BACKUP_FILE"
 echo "backup: pushed $archive ($(tr -cd '\0' <"$file_list" | wc -c) files, $(du -h "$archive_path" | cut -f1))"

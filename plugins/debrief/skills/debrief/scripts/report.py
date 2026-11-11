@@ -363,13 +363,14 @@ def render_dream_line() -> list[str]:
 
 
 def render_memex_failures() -> list[str]:
-    """One line when filings into memex failed their check (attempts kept in stash)."""
+    """One line when memex has stashed work: failed checks or interrupted runs."""
     if not (MEMEX_DIR / ".git").exists():
         return []
     count = len(run(["git", "-C", str(MEMEX_DIR), "stash", "list"]).splitlines())
     if not count:
         return []
-    return [f"- Memex: {count} failed filing(s) kept in `git -C ~/memex stash list`"]
+    stash = "`git -C ~/memex stash list`"
+    return [f"- Memex: {count} failed or interrupted write(s) kept in {stash}"]
 
 
 def render_backup_line() -> list[str]:

@@ -24,10 +24,7 @@ readonly MAX_ITEMS_PER_RUN=25                     # log items per model run
 exec 8>"$MEMEX_DIR/.lock"
 flock 8
 
-if [[ -n $(git -C "$MEMEX_DIR" status --porcelain) ]]; then
-  echo "memex: uncommitted changes in $MEMEX_DIR, not filing" >&2
-  exit 1
-fi
+stash_leftovers filing
 
 mkdir -p "$CURSOR_DIR"
 # Prints how many lines of entries.jsonl a scope has filed (0 for a new scope).

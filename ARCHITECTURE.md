@@ -249,6 +249,9 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 - **Gate**: names, `wkref check` and upward links pass, and nothing changed
   outside the layer. Pass: commit (local only). Fail: the attempt goes to `git
   stash`, the scope retries next run, and `debrief` shows the failure.
+- **Interrupted runs**: a writer cut short (a shutdown mid-edit) leaves the store
+  uncommitted. The next writer, holding the lock, moves such changes to `git stash`
+  before it starts, so filing and dream never stall on them; `debrief` counts them.
 - `scripts/writer.sh` holds what the writers share: the confined model run, the
   outside-the-layer check, the layer's entry list.
 
@@ -350,7 +353,7 @@ machine has no log).
 
 - **Needs you**: `You` items from every `TODO.md` (questions first), issues
   labelled `user`, Claude auto memory folders holding notes to promote, projects
-  with stale notes, failed memex filings, and, where the log runs, a backup that
+  with stale notes, failed or interrupted memex writes, and, where the log runs, a backup that
   is unconfigured or more than two days old;
 - **Running now**: a count of the other live Claude sessions (details:
   `/sessions`) and clones with uncommitted or unpushed work;
@@ -402,7 +405,9 @@ sweep backs up all three, encrypted, after filing memex.
 - **Incremental**: a transcript still growing is packed again in full each day;
   compression keeps that cheap (62 MB of transcripts → 5 MB).
 - **Failures**: the marker `~/.cache/recall/log/last-backup` advances only after a
-  push, so a failed run is retried whole the next day. Errors go to the run log;
+  push, so a failed run is retried whole the next day. A run cut short (a
+  shutdown) is finished by the next one: it deletes a half-written `.partial`,
+  commits a finished archive left uncommitted, and pushes unpushed commits. Errors go to the run log;
   `debrief` flags a last success more than two days old.
 - **Retention**: transcripts are deleted after Claude Code's `cleanupPeriodDays`;
   set it high (years), since memex and `/log` reach back to them.

@@ -20,6 +20,16 @@ run_in_layer() {
     --tools "${tools[@]}" --allowedTools "${rules[@]}" <<<"$input")
 }
 
+# Moves uncommitted changes to `git stash`, so the writers start from a clean store.
+# Call it holding the writer lock: no writer is running then, so the changes come
+# from a run cut short (a shutdown mid-edit) or a hand edit. Nothing is lost:
+# `git -C ~/memex stash list` keeps them and debrief counts them.
+stash_leftovers() {
+  [[ -z $(git -C "$MEMEX_DIR" status --porcelain) ]] && return 0
+  git -C "$MEMEX_DIR" stash push -q -u -m "memex: uncommitted changes found by $1"
+  echo "memex: uncommitted changes found by $1; kept in git stash" >&2
+}
+
 # Prints what changed in the store outside one layer: empty when a run stayed inside.
 changes_outside() {
   git -C "$MEMEX_DIR" status --porcelain -- . ":(exclude)$1"

@@ -75,11 +75,6 @@ lock_store() {
   fi
 }
 
-require_clean_store() {
-  [[ -z $(git -C "$MEMEX_DIR" status --porcelain) ]] ||
-    fail "uncommitted changes in $MEMEX_DIR"
-}
-
 # Prints the proposals file, or an empty one.
 read_proposals() {
   if [[ -f $PROPOSALS ]]; then cat "$PROPOSALS"; else echo '{"next_id": 1, "proposals": []}'; fi
@@ -155,7 +150,7 @@ ask_model() {
 propose() {
   [[ -d $MEMEX_DIR/global ]] || return 0
   lock_store
-  require_clean_store
+  stash_leftovers "dream propose"
   mkdir -p "$DREAMED_DIR"
   local layer head proposals pending history record input output valid count
   while IFS= read -r layer; do
@@ -395,7 +390,7 @@ record_results() {
 # Applies every approved proposal, one confined model run per layer.
 apply() {
   lock_store
-  require_clean_store
+  stash_leftovers "dream apply"
   local layer batch ids input output results absorbed into retired file
   local layers=()
   readarray -t layers < <(read_proposals |
