@@ -1,0 +1,9 @@
+{
+  "name": "memo",
+  "description": "Each project's open items in a managed TODO.md (a hook checks the format after each edit) and fleeting notes in a git-ignored note/ folder, written only on the user's request.",
+  "author": {
+    "name": "dixie6502"
+  },
+  "repository": "https://github.com/dixie6502/mneme",
+  "license": "MIT"
+}

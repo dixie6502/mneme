@@ -7,7 +7,7 @@ Usage: report.py [last|N] [filter]
   filter  substring of a project path (e.g. dixie6502/construct): that project in full
 
 The report is markdown with a fixed layout; a section shows only when its data
-exists, so it works with any mix of the todo, note and recall plugins. Their files
+exists, so it works with any mix of the memo and recall plugins. Their files
 are read directly, as interfaces owned by those plugins (ARCHITECTURE.md > debrief).
 After the report, a context block gives the model the log details for its one
 summary line. Only side effect: an unfiltered run records its time for the next
@@ -34,7 +34,7 @@ MEMEX_DIR = HOME / "memex"
 RUN_LOG = HOME / ".cache/recall/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/recall/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
-# Data of the note plugin: note/*.md at a project root, a `created:` frontmatter
+# Data of memo's note skill: note/*.md at a project root, a `created:` frontmatter
 # date (else the file's mtime), stale after 28 days.
 STALE_NOTE_DAYS = 28
 OWN_OWNER = "dixie6502"

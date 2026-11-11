@@ -6,9 +6,9 @@
   "description": "An agent's information system: log, memex, note, todo, debrief.",
   "plugins": [
     {
-      "name": "todo",
-      "source": "./plugins/todo",
-      "description": "Open items per project in a managed TODO.md."
+      "name": "memo",
+      "source": "./plugins/memo",
+      "description": "Open items (TODO.md) and fleeting notes, per project."
     },
     {
       "name": "recall",

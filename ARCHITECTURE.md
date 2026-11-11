@@ -6,8 +6,7 @@ stand. It ships as a Claude Code marketplace with three plugins, none depending 
 another.
 
 Status: everything is built except memex consolidation (the dream pass), which is on
-hold. Planned: `note` leaves `recall` to join `todo` in one workspace plugin (name
-not chosen yet).
+hold.
 See `README.md`.
 
 ## Model
@@ -36,12 +35,13 @@ debrief              view across all of the above                   (read-only)
 
 | Plugin | Job | Skills | Installed where |
 |---|---|---|---|
-| `todo` | workspace: what is left to do | todo | anywhere open items are tracked |
-| `recall` | memory: derived from transcripts | log, memex, note; hooks, sweep, backup | the agent's hosts |
+| `memo` | workspace: written in the project, by the user or Claude | todo, note; format hook | anywhere |
+| `recall` | memory: derived from transcripts | log, memex; hooks, sweep, backup | the agent's hosts |
 | `debrief` | overview of whatever data exists | debrief, sessions | anywhere |
 
-No plugin depends on another: each works alone, and the full system is all
-three. `debrief` reads the others' files when they exist; those formats are
+`memo` (Latin *memorandum*, "to be remembered") holds what is authored: open
+items and working notes. `recall` holds what is derived. No plugin depends on
+another: each works alone, and the full system is all three. `debrief` reads the others' files when they exist; those formats are
 interfaces owned by their plugin (see debrief). Claude Code cannot enable a
 subset of a plugin's skills, hence one plugin per job.
 
@@ -262,7 +262,8 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 Fleeting notes: research, design, work in progress. A note exists to be turned
 into docs, which do not exist at first and are generated from the notes later.
 
-- Created only by the user, through `note` (`disable-model-invocation`).
+- Created only by the user, through `note` (`disable-model-invocation`). Ships in
+  `memo` with todo; needs `wkref` for links.
 - Location: `note/` at the project root; in a scratch topic when there is no
   project. `[[wikilinks]]`, checked with `wkref check --root note`.
 - Git-ignored through the clone's local `.git/info/exclude`, so no commit lands in
@@ -284,9 +285,9 @@ into docs, which do not exist at first and are generated from the notes later.
 
 Open items per project in `TODO.md`: questions and actions for the user
 (`You`), then `Now`, `Next`, `Later`. Format and check script live in the
-`todo` plugin. Done items are deleted; the log and git history record them.
+`memo` plugin. Done items are deleted; the log and git history record them.
 
-- Independent: installable and usable without `recall`.
+- Independent: installable and usable without `recall` or `debrief`.
 - Long item detail goes in a detail file under `tmp/` (git-ignored), linked from
   the item, and deleted with it.
 - When adding an item, the user may name an existing note to link. todo never
@@ -317,8 +318,8 @@ machine has no log).
 - **Projects**: per project, the `Now` or first `Next` item, counts, open issues;
 - with a filter, one project in full.
 
-Interfaces it reads, each owned by its plugin: `TODO.md` (format of `todo`),
-`note/*.md` with a `created:` date, stale after 28 days (`note`),
+Interfaces it reads, each owned by its plugin: `TODO.md` (format of `memo`'s
+todo), `note/*.md` with a `created:` date, stale after 28 days (`memo`'s note),
 `~/log/entries.jsonl` (`schema.json` of `log`), `~/memex` git history and stash,
 and `~/.cache/recall/log/last-backup` (`recall`). A change to one of them
 changes debrief too.
