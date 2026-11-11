@@ -1,0 +1,9 @@
+{
+  "name": "memex",
+  "description": "Memory that writes itself: a session log from transcripts, log search, linked knowledge filed from the log, and an encrypted backup.",
+  "author": {
+    "name": "dixie6502"
+  },
+  "repository": "https://github.com/dixie6502/mneme",
+  "license": "MIT"
+}

@@ -3,7 +3,7 @@
   "owner": {
     "name": "dixie6502"
   },
-  "description": "An agent's information system: log, memex, note, todo, debrief.",
+  "description": "An agent's information system: log, knowledge, note, todo, debrief.",
   "plugins": [
     {
       "name": "memo",
@@ -11,9 +11,9 @@
       "description": "Open items (TODO.md) and fleeting notes, per project."
     },
     {
-      "name": "recall",
-      "source": "./plugins/recall",
-      "description": "Memory that writes itself: a session log from transcripts, memex facts, and an encrypted backup."
+      "name": "memex",
+      "source": "./plugins/memex",
+      "description": "Memory that writes itself: a session log from transcripts, linked knowledge filed from it, and an encrypted backup."
     },
     {
       "name": "debrief",

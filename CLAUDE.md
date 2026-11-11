@@ -19,4 +19,4 @@ Own repo: commit and push directly to `main` once all checks pass.
 - `.claude-plugin/marketplace.json`: lists the plugins under `plugins/`.
 - `plugins/<plugin>/`: one plugin per folder, with its own
   `.claude-plugin/plugin.json`. Scripts referenced via `${CLAUDE_PLUGIN_ROOT}`.
-- Data never lives in the repo: `~/log`, `~/memex`, project `note/`, `TODO.md`.
+- Data never lives in the repo: `~/log`, `~/knowledge`, `~/memo`.

@@ -34,7 +34,7 @@ trap 'rm -f "$digest"' EXIT
 prompts=$(jq '[.messages[] | select(.who == "user")] | length' "$digest")
 commits=$(jq '.commits | length' "$digest")
 remembers=$(jq '.remember | length' "$digest")
-# A part holding a memex "remember" is always logged, so the fact reaches memex.
+# A part holding a knowledge "remember" is always logged, so the fact reaches knowledge.
 readonly REMEMBER_ONLY='{"skip":false,"topic":"Remember","done":[],"found":[],"decided":[]}'
 if ((prompts < MIN_PROMPTS_WITHOUT_COMMIT && commits == 0 && remembers == 0)); then
   mark_skipped "$to_line" "trivial: $prompts prompts, no commit"

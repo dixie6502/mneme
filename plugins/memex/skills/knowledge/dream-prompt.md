@@ -1,6 +1,6 @@
-# Dream: propose consolidations of one memex layer
+# Dream: propose consolidations of one knowledge layer
 
-You review one layer of memex, a store of durable facts, and propose a few changes
+You review one layer of knowledge, a store of durable facts, and propose a few changes
 that make it clearer. You change nothing: you only propose. The user approves or
 declines each proposal; a separate run applies the approved ones.
 

@@ -1,6 +1,6 @@
-# File log entries into memex
+# File log entries into knowledge
 
-You maintain one layer of memex, a store of durable facts. The input (stdin) is
+You maintain one layer of knowledge, a store of durable facts. The input (stdin) is
 JSON: the `layer` you write (`global` or an owner's name), `today`, `host`, the
 layer's existing `entries` and the global layer's (paths you may Read), and new
 session log `log` items with their `found`, `decided` and `remember` facts.

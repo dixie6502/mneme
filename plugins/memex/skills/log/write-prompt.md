@@ -11,7 +11,7 @@ The input (stdin) is a digest of part of one Claude Code session of `dixie`:
   `issues` (`owner/repo#N`) from the digest that belong to it; never invent one.
 - `found`: non-obvious facts, bugs, limitations learned. Attach issues or `memory` slugs.
 - `decided`: each decision with its reason in a few words.
-- The digest's `remember` lists facts the user asked memex to record. They are
+- The digest's `remember` lists facts the user asked knowledge to record. They are
   copied into the entry as is: do not repeat them in `done`, `found` or `decided`.
 
 Rules:

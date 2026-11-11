@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# File new log entries into memex: for each scope with new found / decided /
+# File new log entries into knowledge: for each scope with new found / decided /
 # remember facts, a headless Sonnet run edits that scope's layer, restricted to
 # it; the result is checked and committed. Run by the log sweep. Never pushes.
 # Progress is kept per scope; a failed check keeps the attempt in `git stash` and
@@ -14,14 +14,14 @@ LOG_SCRIPTS="$SKILL_DIR/../log/scripts"
 source "$LOG_SCRIPTS/common.sh"
 # shellcheck source=writer.sh
 source "$SCRIPT_DIR/writer.sh"
-readonly MEMEX_SCRIPT="$SCRIPT_DIR/memex.sh"
-MEMEX_DIR=$("$MEMEX_SCRIPT" init)
-readonly MEMEX_DIR
-readonly CURSOR_DIR="$STATE_DIR/memex-filed"     # per scope: entries.jsonl lines filed
+readonly KNOWLEDGE_SCRIPT="$SCRIPT_DIR/knowledge.sh"
+KNOWLEDGE_DIR=$("$KNOWLEDGE_SCRIPT" init)
+readonly KNOWLEDGE_DIR
+readonly CURSOR_DIR="$STATE_DIR/knowledge-filed"     # per scope: entries.jsonl lines filed
 readonly MAX_ITEMS_PER_RUN=25                     # log items per model run
 
 [[ -f $ENTRIES ]] || exit 0
-exec 8>"$MEMEX_DIR/.lock"
+exec 8>"$KNOWLEDGE_DIR/.lock"
 flock 8
 
 stash_leftovers filing
@@ -34,7 +34,7 @@ filed_lines() { cat "$CURSOR_DIR/$1" 2>/dev/null || echo 0; }
 # of the repos it committed to, else global. Several owners: skipped, reported.
 scope_of_entry() {
   local cwd_scope repo_owners
-  cwd_scope=$("$MEMEX_SCRIPT" scope "$1")
+  cwd_scope=$("$KNOWLEDGE_SCRIPT" scope "$1")
   if [[ $cwd_scope != global ]]; then echo "$cwd_scope"; return; fi
   repo_owners=$(jq -r '.repos[]? | split("/") | select(length >= 3) | .[1]' <<<"$2" | sort -u)
   case $(grep -c . <<<"$repo_owners") in
@@ -52,7 +52,7 @@ while IFS= read -r entry; do
     <<<"$entry" >/dev/null || continue
   scope=$(scope_of_entry "$(jq -r '.cwd // ""' <<<"$entry")" "$entry")
   if [[ -z $scope ]]; then
-    echo "memex: entry $(jq -r '.session' <<<"$entry") spans several owners, not filed" >&2
+    echo "knowledge: entry $(jq -r '.session' <<<"$entry") spans several owners, not filed" >&2
     continue
   fi
   ((line_number > $(filed_lines "$scope"))) || continue
@@ -68,7 +68,7 @@ readarray -t scopes < <(printf '%s\n' "${!items_by_scope[@]}" |
 failed=0
 for scope in "${scopes[@]}"; do
   scope_failed=0
-  "$MEMEX_SCRIPT" init "$scope" >/dev/null
+  "$KNOWLEDGE_SCRIPT" init "$scope" >/dev/null
   readarray -t items < <(grep . <<<"${items_by_scope[$scope]}")
   for ((start = 0; start < ${#items[@]}; start += MAX_ITEMS_PER_RUN)); do
     chunk=$(printf '%s\n' "${items[@]:start:MAX_ITEMS_PER_RUN}")
@@ -80,14 +80,14 @@ for scope in "${scopes[@]}"; do
     run_in_layer edit sonnet "$scope" "$SKILL_DIR/file-prompt.md" "$input" || true
     # Permissions confine writes to the layer; this check is the second line.
     outside=$(changes_outside "$scope")
-    if [[ -z $outside ]] && "$MEMEX_SCRIPT" gate >/dev/null; then
-      git -C "$MEMEX_DIR" add -- "$scope"
-      git -C "$MEMEX_DIR" diff --cached --quiet ||
-        git -C "$MEMEX_DIR" commit -q -m "File log items into $scope ($(date +%F) · $(hostname))"
+    if [[ -z $outside ]] && "$KNOWLEDGE_SCRIPT" gate >/dev/null; then
+      git -C "$KNOWLEDGE_DIR" add -- "$scope"
+      git -C "$KNOWLEDGE_DIR" diff --cached --quiet ||
+        git -C "$KNOWLEDGE_DIR" commit -q -m "File log items into $scope ($(date +%F) · $(hostname))"
       jq -s 'map(.line) | max' <<<"$chunk" >"$CURSOR_DIR/$scope"
     else
-      git -C "$MEMEX_DIR" stash push -q -u -m "memex: failed check filing into $scope" -- "$scope"
-      echo "memex: check failed filing into $scope; attempt kept in git stash" >&2
+      git -C "$KNOWLEDGE_DIR" stash push -q -u -m "knowledge: failed check filing into $scope" -- "$scope"
+      echo "knowledge: check failed filing into $scope; attempt kept in git stash" >&2
       scope_failed=1
       break
     fi

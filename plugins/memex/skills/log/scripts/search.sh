@@ -39,7 +39,7 @@ grep -l -i -E "$pattern" "$TRANSCRIPTS"/*/*.jsonl 2>/dev/null | while read -r tr
   matches=$(jq -r 'select((.type == "user" or .type == "assistant") and .isSidechain != true)
     | .timestamp as $t | .type as $who | .message.content
     | if type == "string" then . else (.[]? | select(.type == "text") | .text) end
-    | select(test("^/(recall:)?log ") | not)
+    | select(test("^/((recall|memex):)?log ") | not)
     | "\($t[:16]) \($who): \(gsub("\n"; " "))"' "$transcript" 2>/dev/null |
     grep -i -E "$pattern" | cut -c1-400 | head -n "$MAX_TRANSCRIPT_LINES" || true)
   [[ -n $matches ]] || continue

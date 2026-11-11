@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Encrypted backup of the transcripts (mneme's raw source), the log and memex
+# Encrypted backup of the transcripts (mneme's raw source), the log and knowledge
 # (rebuildable, but only through model runs). Packs the files changed since the
 # last backup into one archive, compresses it and encrypts it to the configured
 # age recipients on this machine, then commits and pushes it to the backup clone
@@ -14,7 +14,7 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 readonly TRANSCRIPTS_DIR="$HOME/.claude/projects"
-readonly MEMEX_DIR="${MEMEX_DIR:-$HOME/memex}"
+readonly KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/knowledge}"
 readonly ZSTD_LEVEL=19
 
 fail() { echo "backup: $1" >&2; exit 1; }
@@ -43,13 +43,13 @@ recover_interrupted_run() {
 }
 
 [[ -n $BACKUP_DIR && -n $BACKUP_RECIPIENTS ]] ||
-  fail "not configured: set RECALL_BACKUP_DIR and RECALL_BACKUP_RECIPIENTS"
+  fail "not configured: set MEMEX_BACKUP_DIR and MEMEX_BACKUP_RECIPIENTS"
 [[ -d $BACKUP_DIR/.git ]] || fail "$BACKUP_DIR is not a git clone"
 [[ -s $BACKUP_RECIPIENTS ]] || fail "no age recipients file at $BACKUP_RECIPIENTS"
 
 # Archive paths are relative to $HOME, so a restore works under any home.
 sources=()
-for dir in "$TRANSCRIPTS_DIR" "$LOG_DIR" "$MEMEX_DIR"; do
+for dir in "$TRANSCRIPTS_DIR" "$LOG_DIR" "$KNOWLEDGE_DIR"; do
   [[ -d $dir ]] || continue
   [[ $dir == "$HOME"/* ]] || fail "$dir is outside $HOME"
   sources+=("${dir#"$HOME"/}")

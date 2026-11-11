@@ -1,6 +1,6 @@
 ---
 name: debrief
-description: Debrief on where dixie stands across all projects, from whatever data exists - what needs the user, live sessions and unpushed work, recent log entries, memex changes, each project's next item from TODO.md and GitHub issues. Use when the user asks "where are we", "recap", "what's open", or before resuming earlier work. Arguments, both optional: `last` (log since the previous debrief) or N (latest N log entries, default 3), then a filter (substring of a project path or owner/repo) for that project in full.
+description: Debrief on where dixie stands across all projects, from whatever data exists - what needs the user, live sessions and unpushed work, recent log entries, knowledge changes, each project's next item from TODO.md and GitHub issues. Use when the user asks "where are we", "recap", "what's open", or before resuming earlier work. Arguments, both optional: `last` (log since the previous debrief) or N (latest N log entries, default 3), then a filter (substring of a project path or owner/repo) for that project in full.
 argument-hint: "[last|N] [filter]"
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/report.py *)
 model: sonnet

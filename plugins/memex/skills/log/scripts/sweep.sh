@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Catch-up sweep: log transcripts that no SessionEnd / PreCompact hook logged
 # (crashed sessions, sessions left open; only those idle for an hour or more),
-# then file the log's new facts into memex, propose consolidations (dream), then
+# then file the log's new facts into knowledge, propose consolidations (dream), then
 # back up. Started by hook.sh at session start, at most once a day.
 set -uo pipefail
 
@@ -14,6 +14,6 @@ find "$HOME/.claude/projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' \
     "$SCRIPT_DIR/write.sh" "$transcript" || echo "failed: $transcript" >&2
   done
 
-"$SCRIPT_DIR/../../memex/scripts/file.sh" || echo "memex: filing failed" >&2
-"$SCRIPT_DIR/../../memex/scripts/dream.sh" propose || echo "memex: dream failed" >&2
+"$SCRIPT_DIR/../../knowledge/scripts/file.sh" || echo "knowledge: filing failed" >&2
+"$SCRIPT_DIR/../../knowledge/scripts/dream.sh" propose || echo "knowledge: dream failed" >&2
 "$SCRIPT_DIR/backup.sh" || echo "backup: failed" >&2

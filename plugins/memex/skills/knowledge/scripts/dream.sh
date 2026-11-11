@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# The dream pass: memex consolidation in propose mode. A read-only model run per
+# The dream pass: knowledge consolidation in propose mode. A read-only model run per
 # layer proposes merges, splits, links, fixes and retirements; nothing changes until
-# the user approves a proposal (`/memex apply`), or asks to retire an entry
-# (`/memex retire`). A confined writer then applies it, behind the same gate as
-# file.sh. Proposals live in ~/memex/.dream/proposals.json,
+# the user approves a proposal (`/knowledge apply`), or asks to retire an entry
+# (`/knowledge retire`). A confined writer then applies it, behind the same gate as
+# file.sh. Proposals live in ~/knowledge/.dream/proposals.json,
 # committed with the store.
 #
 # Usage: dream.sh propose            each layer changed since its last dream and with
@@ -26,11 +26,11 @@ SKILL_DIR=$(dirname "$SCRIPT_DIR")
 source "$SKILL_DIR/../log/scripts/common.sh"
 # shellcheck source=writer.sh
 source "$SCRIPT_DIR/writer.sh"
-readonly MEMEX_SCRIPT="$SCRIPT_DIR/memex.sh"
-readonly MEMEX_DIR="${MEMEX_DIR:-$HOME/memex}"   # override for tests only
+readonly KNOWLEDGE_SCRIPT="$SCRIPT_DIR/knowledge.sh"
+readonly KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/knowledge}"   # override for tests only
 readonly PROPOSALS_PATH=.dream/proposals.json      # relative to the store
-readonly PROPOSALS="$MEMEX_DIR/$PROPOSALS_PATH"
-readonly DREAMED_DIR="$STATE_DIR/memex-dreamed"    # per layer: its last commit dreamed
+readonly PROPOSALS="$KNOWLEDGE_DIR/$PROPOSALS_PATH"
+readonly DREAMED_DIR="$STATE_DIR/knowledge-dreamed"    # per layer: its last commit dreamed
 readonly MAX_PROPOSALS_PER_LAYER=5
 readonly MAX_HISTORY_SHOWN=30                      # past decisions the model sees
 readonly MIN_DECISIONS_UNATTENDED=10               # a kind is ready to run unattended
@@ -61,15 +61,15 @@ readonly DECISIONS_JQ='
         by_confidence: (group_by(.confidence)
           | map({confidence: .[0].confidence, decided: length, approved: approvals}))});'
 
-fail() { echo "memex dream: $1" >&2; exit 1; }
+fail() { echo "knowledge dream: $1" >&2; exit 1; }
 today() { date +%F; }
 stamp() { echo "$(today) · $(hostname)"; }
 
 # Takes the store's writer lock: waits for it, or gives up after a while (user commands).
 lock_store() {
-  exec 8>"$MEMEX_DIR/.lock"
+  exec 8>"$KNOWLEDGE_DIR/.lock"
   if [[ ${1:-} == --briefly ]]; then
-    flock -w "$LOCK_WAIT_SECONDS" 8 || fail "memex is busy (the sweep is writing); try again later"
+    flock -w "$LOCK_WAIT_SECONDS" 8 || fail "knowledge is busy (the sweep is writing); try again later"
   else
     flock 8
   fi
@@ -91,8 +91,8 @@ commit_proposals() {
     <<<"$json" >/dev/null 2>&1 || fail "refusing to write invalid proposals ($message)"
   mkdir -p "$(dirname "$PROPOSALS")"
   jq . <<<"$json" >"$PROPOSALS.new" && mv "$PROPOSALS.new" "$PROPOSALS"
-  git -C "$MEMEX_DIR" add -- "$PROPOSALS_PATH" "$@"
-  git -C "$MEMEX_DIR" diff --cached --quiet || git -C "$MEMEX_DIR" commit -q -m "$message"
+  git -C "$KNOWLEDGE_DIR" add -- "$PROPOSALS_PATH" "$@"
+  git -C "$KNOWLEDGE_DIR" diff --cached --quiet || git -C "$KNOWLEDGE_DIR" commit -q -m "$message"
 }
 
 # Prints non-empty input lines as a JSON array.
@@ -100,23 +100,23 @@ json_lines() { jq -R 'select(length > 0)' | jq -s -c .; }
 
 # Prints the store's layers, global first.
 list_layers() {
-  [[ -d $MEMEX_DIR/global ]] && echo global
-  find "$MEMEX_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name global \
+  [[ -d $KNOWLEDGE_DIR/global ]] && echo global
+  find "$KNOWLEDGE_DIR" -mindepth 1 -maxdepth 1 -type d ! -name '.*' ! -name global \
     -printf '%f\n' | sort
 }
 
 # Prints the basenames of a layer's entries, as a JSON array.
 entry_names() {
-  find "$MEMEX_DIR/$1" -maxdepth 1 -name '*.md' -printf '%f\n' | sed 's/\.md$//' | json_lines
+  find "$KNOWLEDGE_DIR/$1" -maxdepth 1 -name '*.md' -printf '%f\n' | sed 's/\.md$//' | json_lines
 }
 
 # Prints a layer's hints for the model: orphans (the index aside) and long entries.
 layer_hints() {
   local layer=$1 orphans entry
   local long=()
-  orphans=$(wkref orphans --root "$MEMEX_DIR" |
+  orphans=$(wkref orphans --root "$KNOWLEDGE_DIR" |
     sed -n "s|^orphan: $layer/\(.*\)\.md$|\1|p" | { grep -vx "$layer" || true; } | json_lines)
-  for entry in "$MEMEX_DIR/$layer"/*.md; do
+  for entry in "$KNOWLEDGE_DIR/$layer"/*.md; do
     if (($(wc -l <"$entry") > LONG_ENTRY_LINES)); then
       long+=("$(basename "$entry" .md)")
     fi
@@ -137,7 +137,7 @@ ask_model() {
       --output-format json --json-schema "$(<"$schema_file")" || true; } |
       jq -c '{output: .structured_output, stop_reason}' 2>/dev/null) || reply='{"output": null}'
     if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
-      echo "memex dream: $model refused layer $layer" >&2
+      echo "knowledge dream: $model refused layer $layer" >&2
       continue
     fi
     jq -c '.output' <<<"$reply"
@@ -148,13 +148,13 @@ ask_model() {
 
 # Proposes consolidations for each layer that changed since its last dream.
 propose() {
-  [[ -d $MEMEX_DIR/global ]] || return 0
+  [[ -d $KNOWLEDGE_DIR/global ]] || return 0
   lock_store
   stash_leftovers "dream propose"
   mkdir -p "$DREAMED_DIR"
   local layer head proposals pending history record input output valid count
   while IFS= read -r layer; do
-    head=$(git -C "$MEMEX_DIR" log -1 --format=%H -- "$layer")
+    head=$(git -C "$KNOWLEDGE_DIR" log -1 --format=%H -- "$layer")
     [[ -n $head && $(cat "$DREAMED_DIR/$layer" 2>/dev/null) != "$head" ]] || continue
     proposals=$(read_proposals)
     pending=$(jq --arg layer "$layer" --argjson pending "$PENDING" \
@@ -177,7 +177,7 @@ propose() {
     output=$(ask_model read "$layer" "$SKILL_DIR/dream-prompt.md" \
       "$SKILL_DIR/dream-schema.json" "$input")
     if [[ $output == null ]]; then
-      echo "memex dream: no answer for layer $layer" >&2
+      echo "knowledge dream: no answer for layer $layer" >&2
       continue
     fi
     # Keep well-formed proposals about this layer's own entries only.
@@ -200,13 +200,13 @@ propose() {
       | .next_id += ($new | length)' <<<"$proposals" |
       commit_proposals "Dream: $count proposal(s) for $layer ($(stamp))"
     echo "$head" >"$DREAMED_DIR/$layer"
-    echo "memex dream: $count proposal(s) for $layer"
+    echo "knowledge dream: $count proposal(s) for $layer"
   done < <(list_layers)
 }
 
 # Prints the proposals of a scope (an owner, or global) and of global.
 list() {
-  local scope=${1:-$("$MEMEX_SCRIPT" scope)}
+  local scope=${1:-$("$KNOWLEDGE_SCRIPT" scope)}
   [[ -f $PROPOSALS ]] || { echo "No dream proposals yet."; return 0; }
   jq -r --arg scope "$scope" --arg days "$RECENT_DAYS" \
     --arg since "$(date -d "-$RECENT_DAYS days" +%F)" \
@@ -226,7 +226,7 @@ list() {
         else "\($scope) and global" end) + ")\n",
       (if ($open | length) == 0 then "No proposals to review."
        else ($open[] | line),
-         "\nApprove with `/memex apply <ids>`, decline with `/memex reject <ids>`." end),
+         "\nApprove with `/knowledge apply <ids>`, decline with `/knowledge reject <ids>`." end),
       (if ($approved | length) > 0
        then "\nBeing applied: \($approved | map(.id | tostring) | join(", "))"
        else empty end),
@@ -288,7 +288,7 @@ approve() {
   ids=$(leading_ids "$@")
   commit_proposals "Approve dream proposals $ids ($(stamp))" <<<"$updated"
   apply_in_background
-  echo "Applying proposal(s) $ids in the background: \`/memex dream\` shows the result in a minute or two."
+  echo "Applying proposal(s) $ids in the background: \`/knowledge dream\` shows the result in a minute or two."
 }
 
 # Starts the apply job; it takes the lock itself, once this command has released it.
@@ -305,9 +305,9 @@ retire() {
   proposals=$(read_proposals)
   for entry in "$@"; do
     entry=$(basename "$entry" .md)
-    layer=$(find "$MEMEX_DIR" -mindepth 2 -maxdepth 2 -name "$entry.md" -not -path '*/.*' \
+    layer=$(find "$KNOWLEDGE_DIR" -mindepth 2 -maxdepth 2 -name "$entry.md" -not -path '*/.*' \
       -printf '%h\n' | xargs -r -n 1 basename)
-    [[ -n $layer ]] || fail "no memex entry named $entry"
+    [[ -n $layer ]] || fail "no knowledge entry named $entry"
     [[ $entry != "$layer" ]] || fail "$entry is the $layer index: it cannot be retired"
     proposals=$(jq --arg entry "$entry" --arg layer "$layer" --arg today "$(today)" '
       .proposals += [{id: .next_id, layer: $layer, kind: "retire", entries: [$entry],
@@ -318,7 +318,7 @@ retire() {
   done
   commit_proposals "Retire $* as the user asked ($(stamp))" <<<"$proposals"
   apply_in_background
-  echo "Retiring $* in the background: \`/memex dream\` shows the result in a minute or two."
+  echo "Retiring $* in the background: \`/knowledge dream\` shows the result in a minute or two."
 }
 
 reject() {
@@ -358,8 +358,8 @@ unlink_links() {
       s/\[\[\Q$name\E\|([^\]]+)\]\]/$1/g;
       s/\[\[\Q$name\E(#[^\]]*)?\]\]/$name/g;
       print' "$name" "$file"
-    echo "${file#"$MEMEX_DIR"/}"
-  done < <(grep -rlZ -F "[[$name" --include='*.md' --exclude-dir='.*' "$MEMEX_DIR" || true)
+    echo "${file#"$KNOWLEDGE_DIR"/}"
+  done < <(grep -rlZ -F "[[$name" --include='*.md' --exclude-dir='.*' "$KNOWLEDGE_DIR" || true)
 }
 
 # Repoints [[old]] links to [[new]] across the store; prints each file it changed.
@@ -368,9 +368,9 @@ repoint_links() {
   while IFS= read -r -d '' file; do
     sed -i -E "s/\[\[$old(\]\]|\||#)/[[$new\1/g" "$file"
     tidy_related "$file"
-    echo "${file#"$MEMEX_DIR"/}"
+    echo "${file#"$KNOWLEDGE_DIR"/}"
   done < <(grep -rlZ -E "\[\[$old(\]\]|\||#)" --include='*.md' --exclude-dir='.*' \
-    "$MEMEX_DIR" || true)
+    "$KNOWLEDGE_DIR" || true)
 }
 
 # Records each proposal's outcome from the model's results; prints the proposals.
@@ -415,31 +415,31 @@ apply() {
       # are repointed store-wide, then the files are removed.
       while IFS=$'\t' read -r absorbed into; do
         while IFS= read -r file; do changed+=("$file"); done < <(repoint_links "$absorbed" "$into")
-        git -C "$MEMEX_DIR" rm -q -- "$layer/$absorbed.md"
+        git -C "$KNOWLEDGE_DIR" rm -q -- "$layer/$absorbed.md"
       done < <(jq -r --argjson results "$results" '.[] | select(.kind == "merge")
         | select(.id as $id | $results | any(.id == $id and .applied))
         | .into as $into | .entries[] | select(. != $into) | "\(.)\t\($into)"' <<<"$batch")
       # An applied retirement leaves the file and outside links to this script too.
       while IFS= read -r retired; do
-        [[ -f $MEMEX_DIR/$layer/$retired.md ]] || continue
+        [[ -f $KNOWLEDGE_DIR/$layer/$retired.md ]] || continue
         while IFS= read -r file; do changed+=("$file"); done < <(unlink_links "$retired")
-        git -C "$MEMEX_DIR" rm -q -- "$layer/$retired.md"
+        git -C "$KNOWLEDGE_DIR" rm -q -- "$layer/$retired.md"
       done < <(jq -r --argjson results "$results" '.[] | select(.kind == "retire")
         | select(.id as $id | $results | any(.id == $id and .applied)) | .entries[]' <<<"$batch")
-      if "$MEMEX_SCRIPT" gate >/dev/null; then
+      if "$KNOWLEDGE_SCRIPT" gate >/dev/null; then
         record_results "$batch" "$results" |
           commit_proposals "Apply dream proposals $ids to $layer ($(stamp))" "${changed[@]}"
-        echo "memex dream: applied proposals $ids to $layer"
+        echo "knowledge dream: applied proposals $ids to $layer"
         continue
       fi
     fi
-    git -C "$MEMEX_DIR" stash push -q -u -m "memex: failed applying dream proposals $ids to $layer"
+    git -C "$KNOWLEDGE_DIR" stash push -q -u -m "knowledge: failed applying dream proposals $ids to $layer"
     read_proposals | jq --argjson batch "$batch" --arg today "$(today)" '
       ($batch | map(.id)) as $ids
       | .proposals |= map(if (.id | IN($ids[])) then .status = "failed" | .updated = $today
-          | .reason = "check failed; attempt kept in `git -C ~/memex stash list`" else . end)' |
+          | .reason = "check failed; attempt kept in `git -C ~/knowledge stash list`" else . end)' |
       commit_proposals "Dream proposals $ids failed for $layer ($(stamp))"
-    echo "memex dream: applying proposals $ids to $layer failed; attempt kept in git stash" >&2
+    echo "knowledge dream: applying proposals $ids to $layer failed; attempt kept in git stash" >&2
   done
 }
 

@@ -7,7 +7,7 @@ Usage: report.py [last|N] [filter]
   filter  substring of a project path (e.g. dixie6502/construct): that project in full
 
 The report is markdown with a fixed layout; a section shows only when its data
-exists, so it works with any mix of the memo and recall plugins. Their files
+exists, so it works with any mix of the memo and memex plugins. Their files
 are read directly, as interfaces owned by those plugins (ARCHITECTURE.md > debrief).
 After the report, a context block gives the model the log details for its one
 summary line. Only side effect: an unfiltered run records its time for the next
@@ -28,12 +28,12 @@ HOME = Path.home()
 SKILLS_DIR = Path(__file__).resolve().parents[2]
 SESSIONS_SCRIPT = SKILLS_DIR / "sessions/scripts/sessions.py"  # same plugin
 LAST_DEBRIEF_FILE = HOME / ".cache/debrief/last-run"
-# Data of the recall plugin, read when present: the log, memex, backup state.
+# Data of the memex plugin, read when present: the log, knowledge, backup state.
 LOG_ENTRIES = HOME / "log/entries.jsonl"
-MEMEX_DIR = HOME / "memex"
-DREAM_PROPOSALS = MEMEX_DIR / ".dream/proposals.json"
-RUN_LOG = HOME / ".cache/recall/log/run.log"
-LAST_BACKUP_FILE = HOME / ".cache/recall/log/last-backup"
+KNOWLEDGE_DIR = HOME / "knowledge"
+DREAM_PROPOSALS = KNOWLEDGE_DIR / ".dream/proposals.json"
+RUN_LOG = HOME / ".cache/memex/log/run.log"
+LAST_BACKUP_FILE = HOME / ".cache/memex/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
 # Data of memo's note skill: note/*.md at a project root, a `created:` frontmatter
 # date (else the file's mtime), stale after 28 days.
@@ -320,12 +320,12 @@ def render_stale_notes_line(project_filter: str) -> list[str]:
     return ["- Notes to convert or delete: " + " · ".join(parts)]
 
 
-def render_memex_changes() -> list[str]:
-    """Memex entries changed since the last unfiltered debrief (all, if none yet)."""
-    if not (MEMEX_DIR / ".git").exists():
+def render_knowledge_changes() -> list[str]:
+    """Knowledge entries changed since the last unfiltered debrief (all, if none yet)."""
+    if not (KNOWLEDGE_DIR / ".git").exists():
         return []
     since = LAST_DEBRIEF_FILE.read_text().strip() if LAST_DEBRIEF_FILE.exists() else ""
-    command = ["git", "-C", str(MEMEX_DIR), "log", "--name-only", "--format="]
+    command = ["git", "-C", str(KNOWLEDGE_DIR), "log", "--name-only", "--format="]
     if since:
         command.append(f"--since={since}")
     changed = sorted(
@@ -340,7 +340,7 @@ def render_memex_changes() -> list[str]:
 
 
 def render_dream_line() -> list[str]:
-    """One line when memex dream proposals wait for the user: to review, or failed."""
+    """One line when knowledge dream proposals wait for the user: to review, or failed."""
     if not DREAM_PROPOSALS.exists():
         return []
     proposals = json.loads(DREAM_PROPOSALS.read_text()).get("proposals", [])
@@ -359,25 +359,25 @@ def render_dream_line() -> list[str]:
         parts.append(f"{failed} failed to apply")
     if not parts:
         return []
-    return [f"- Memex dream: {' · '.join(parts)}: `/memex dream [owner]`"]
+    return [f"- Knowledge dream: {' · '.join(parts)}: `/knowledge dream [owner]`"]
 
 
-def render_memex_failures() -> list[str]:
-    """One line when memex has stashed work: failed checks or interrupted runs."""
-    if not (MEMEX_DIR / ".git").exists():
+def render_knowledge_failures() -> list[str]:
+    """One line when knowledge has stashed work: failed checks or interrupted runs."""
+    if not (KNOWLEDGE_DIR / ".git").exists():
         return []
-    count = len(run(["git", "-C", str(MEMEX_DIR), "stash", "list"]).splitlines())
+    count = len(run(["git", "-C", str(KNOWLEDGE_DIR), "stash", "list"]).splitlines())
     if not count:
         return []
-    stash = "`git -C ~/memex stash list`"
-    return [f"- Memex: {count} failed or interrupted write(s) kept in {stash}"]
+    stash = "`git -C ~/knowledge stash list`"
+    return [f"- Knowledge: {count} failed or interrupted write(s) kept in {stash}"]
 
 
 def render_backup_line() -> list[str]:
     """One line when the log runs here and its backup is unconfigured or too old."""
     if not LOG_ENTRIES.exists():
         return []
-    if not os.environ.get("RECALL_BACKUP_DIR"):
+    if not os.environ.get("MEMEX_BACKUP_DIR"):
         return ["- Backup: not configured, transcripts exist only on this host"]
     see_log = f"see `~/{RUN_LOG.relative_to(HOME)}`"
     if not LAST_BACKUP_FILE.exists():
@@ -484,7 +484,9 @@ def main() -> None:
         + (
             []
             if project_filter
-            else render_memex_failures() + render_dream_line() + render_backup_line()
+            else render_knowledge_failures()
+            + render_dream_line()
+            + render_backup_line()
         ),
     )
     add_section("Running now", running)
@@ -495,7 +497,9 @@ def main() -> None:
             or ["- Nothing logged."],
         )
     if not project_filter:
-        add_section("Memex (changed since the last debrief)", render_memex_changes())
+        add_section(
+            "Knowledge (changed since the last debrief)", render_knowledge_changes()
+        )
     if is_in_full:
         for project in projects:
             report.extend(render_project_in_full(project))
