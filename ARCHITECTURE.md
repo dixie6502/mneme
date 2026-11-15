@@ -138,6 +138,13 @@ notes in one repository, so the remote must stay private.
   hooks under `flock ~/memo/.lock`: commit every change in the store as
   `<host> · <UTC time>`, fetch, rebase local commits onto the remote, scan, push.
   Running it at both ends picks up a session that crashed before its end.
+- **Sparse store** (optional, per host): a host clones the store with
+  `git clone --filter=blob:none --sparse` and lists `.template` plus its
+  notebooks in `git sparse-checkout set`, so it holds only its own notebooks.
+  Before committing, the sync adds every notebook folder on disk (one holding
+  `.source`) to the sparse set: `folio init` brings a new notebook into the
+  store, or an existing one's remote notes onto the host. It hides notebooks,
+  it does not protect them: the host can still read the whole repository.
 - **Secrets**: `gitleaks` scans each commit before the push; a finding blocks the
   push and leaves the commit local.
 - **Failures** (a rebase conflict, a refused push, a gitleaks finding) leave local

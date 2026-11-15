@@ -41,6 +41,15 @@ fail_sync() {
   fail "$1"
 }
 
+# In a sparse store, adds every notebook on disk to the sparse set: a new one
+# (folio init) gets committed, an existing one gets its remote notes.
+include_local_notebooks() {
+  [[ $(git -C "$MEMO_DIR" config --bool core.sparseCheckout) == true ]] || return 0
+  local notebooks
+  mapfile -t notebooks < <(cd "$MEMO_DIR" && find . -path ./.git -prune -o -name .source -printf '%h\n')
+  ((${#notebooks[@]} == 0)) || git -C "$MEMO_DIR" sparse-checkout add "${notebooks[@]#./}"
+}
+
 # Commits every change, rebases onto the remote, scans for secrets, pushes.
 # Without a remote, commits only. Under the store's lock.
 sync_store() {
@@ -49,6 +58,7 @@ sync_store() {
   flock -w "$LOCK_WAIT_SECONDS" 8 || fail_sync "store busy: another sync holds the lock"
   local git=(git -C "$MEMO_DIR")
 
+  include_local_notebooks || fail_sync "sparse-checkout add failed"
   if [[ -n $("${git[@]}" status --porcelain) ]]; then
     "${git[@]}" add --all
     "${git[@]}" commit -q -m "$(hostname) · $(date -u +%FT%TZ)"
