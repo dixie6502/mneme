@@ -497,5 +497,5 @@ From the previous layout, once per host, with the scripts in `migrate/`.
   in Claude Code's `env` settings, and `recall@mneme` replaced by `memex@mneme`.
 - The move of `TODO.md` and notes out of clones into `~/memo`, then into folio
   notebooks there, is in git history (`migrate/memo.sh`, `migrate/folio.sh`).
-  The move from `~/memo` to the owners' stores is folio's (`migrate/stores.sh`
-  in folio, see its `migration.md`).
+  The move from `~/memo` to the owners' stores is in folio's git history
+  (`migrate/stores.sh`, `migration.md`).

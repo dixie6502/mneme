@@ -47,8 +47,6 @@ Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
 - `migrate/memex.sh`, with no session writing: moves `~/memex` to `~/knowledge`
   and `~/.cache/recall` to `~/.cache/memex`, then prints the remaining steps
   (reinstall the plugin, rename the `RECALL_BACKUP_*` settings).
-- From `~/memo` to the owners' stores: folio's `migrate/stores.sh` (see folio's
-  `migration.md`).
 
 ## Develop
 
