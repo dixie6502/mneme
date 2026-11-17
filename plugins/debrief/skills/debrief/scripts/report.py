@@ -8,8 +8,8 @@ Usage: report.py [all] [last|N] [filter]
   filter  substring of a project scope (e.g. dixie6502/construct): that project in full
 
 Run inside a folder with a folio notebook without `all` or a filter, it is local:
-the filter is that notebook's id (`folio --dir`). Filters match case-insensitively,
-since folio lowercases repository ids.
+the filter is that notebook's id (`folio --dir`). Filters match case-insensitively
+(store notebook ids are lowercased, as repositories are matched).
 
 The report is markdown with a fixed layout; a section shows only when its data
 exists, so it works with any mix of the memo and memex plugins. Their files
@@ -41,13 +41,17 @@ DREAM_PROPOSALS = KNOWLEDGE_DIR / ".dream/proposals.json"
 RUN_LOG = HOME / ".cache/memex/log/run.log"
 LAST_BACKUP_FILE = HOME / ".cache/memex/log/last-backup"
 BACKUP_MAX_AGE_DAYS = 2  # the sweep backs up daily; one missed day is not news
-# Data of the memo plugin, kept in folio's notebooks: folders of the store holding
-# a .source record, each with its TODO.md, item details under todo/, and notes (a
-# `created:` frontmatter date, else the file's mtime, stale after 28 days); and
-# the store's sync log.
-MEMO_DIR = Path(os.environ.get("FOLIO_HOME", HOME / "memo"))
-NOTEBOOK_RECORD = ".source"
-MEMO_SYNC_LOG = HOME / ".cache/memo/sync.log"
+# Data of the memo plugin, kept in folio's notebooks: a store is a notebooks/
+# folder holding a .folio marker in an owner folder (~/<host>/<owner>/), with
+# one notebook per project; a local notebook is a notes/ folder inside the
+# folder it serves. Each notebook holds a .notebook marker, its TODO.md, item
+# details under todo/, and notes (a `created:` frontmatter date, else the
+# file's mtime, stale after 28 days). `folio check` reports their problems,
+# sync included.
+STORE_DIR = "notebooks"
+STORE_MARKER = ".folio"
+NOTEBOOK_MARKER = ".notebook"
+LOCAL_NOTEBOOK_DIR = "notes"
 STALE_NOTE_DAYS = 28
 OWN_OWNER = "dixie6502"
 DEFAULT_ENTRIES_SHOWN = 3
@@ -67,7 +71,7 @@ class TodoItem:
 
 @dataclass
 class Project:
-    """Everything known about one project, keyed by its folio notebook id (owner/repo, ...)."""
+    """Everything known about one project, keyed by its notebook id (owner/repo, lowercased)."""
 
     name: str
     todo: dict[str, list[TodoItem]] = field(default_factory=dict)
@@ -84,17 +88,23 @@ def clone_paths(pattern: str) -> list[Path]:
     )
 
 
+def notebook_id(notebook: Path) -> str:
+    """A notebook's id: <owner>/<project> in a store (lowercased, as repos are
+    matched), the served folder's path from ~ for a local notebook, else ""."""
+    store = notebook.parent
+    if store.name == STORE_DIR and (store / STORE_MARKER).is_file():
+        return f"{store.parent.name}/{notebook.name}".lower()
+    if notebook.name == LOCAL_NOTEBOOK_DIR and notebook.parent.is_relative_to(HOME):
+        return str(notebook.parent.relative_to(HOME))
+    return ""
+
+
 def current_notebook_id() -> str:
     """Id of the current folder's folio notebook (`folio --dir`), or "" if none."""
     if not shutil.which("folio"):
         return ""
     notebook = run(["folio", "--dir"]).strip()
-    if not notebook:
-        return ""
-    try:
-        return str(Path(notebook).resolve().relative_to(MEMO_DIR.resolve()))
-    except ValueError:
-        return ""
+    return notebook_id(Path(notebook).resolve()) if notebook else ""
 
 
 def is_listed(relative: Path) -> bool:
@@ -103,13 +113,15 @@ def is_listed(relative: Path) -> bool:
 
 
 def list_notebooks() -> list[tuple[str, Path]]:
-    """(id, folder) of every folio notebook in the store, sorted by id."""
-    if not MEMO_DIR.is_dir():
-        return []
+    """(id, folder) of every notebook in every store, sorted by id. Local
+    notebooks are not listed: nothing records where they are."""
     return sorted(
-        (str(record.parent.relative_to(MEMO_DIR)), record.parent)
-        for record in MEMO_DIR.rglob(NOTEBOOK_RECORD)
-        if is_listed(record.parent.relative_to(MEMO_DIR))
+        (notebook_id(notebook), notebook)
+        for marker in clone_paths(f"*/*/{STORE_DIR}/{STORE_MARKER}")
+        for notebook in marker.parent.iterdir()
+        if notebook.is_dir()
+        and is_listed(Path(notebook.name))
+        and (notebook / NOTEBOOK_MARKER).is_file()
     )
 
 
@@ -423,8 +435,8 @@ def render_knowledge_failures() -> list[str]:
 
 
 def render_folio_check_lines() -> list[str]:
-    """`folio check` findings (orphan, changed id, nested, stray), one line each."""
-    if not shutil.which("folio") or not MEMO_DIR.is_dir():
+    """`folio check` findings (notebooks and their sync), one line each."""
+    if not shutil.which("folio"):
         return []
     result = subprocess.run(
         ["folio", "check"], capture_output=True, text=True, check=False
@@ -432,28 +444,6 @@ def render_folio_check_lines() -> list[str]:
     if result.returncode == 0:
         return []
     return [f"- Folio: {line}" for line in result.stdout.splitlines() if line]
-
-
-def render_memo_sync_line() -> list[str]:
-    """One line when the memo store is not synced: no remote, unpushed, or failing."""
-    if not (MEMO_DIR / ".git").exists():
-        return []
-    if not run(["git", "-C", str(MEMO_DIR), "remote"]).strip():
-        return ["- Memo: no remote, the store exists only on this host"]
-    parts = []
-    unpushed = run(
-        ["git", "-C", str(MEMO_DIR), "rev-list", "--count", "@{upstream}..HEAD"]
-    ).strip()
-    if unpushed != "0":
-        parts.append(f"{unpushed} unpushed commit(s)" if unpushed else "never pushed")
-    last_line = (
-        MEMO_SYNC_LOG.read_text().splitlines()[-1:] if MEMO_SYNC_LOG.exists() else []
-    )
-    if last_line and " error: " in last_line[0]:
-        parts.append("last sync failed: " + last_line[0].split(" error: ", 1)[1])
-    if not parts:
-        return []
-    return ["- Memo sync: " + " · ".join(parts)]
 
 
 def render_backup_line() -> list[str]:
@@ -571,7 +561,6 @@ def main() -> None:
         + render_memory_line(project_filter)
         + render_stale_notes_line(project_filter)
         + render_folio_check_lines()
-        + render_memo_sync_line()
         + render_knowledge_failures()
         + render_dream_line()
         + render_backup_line(),

@@ -2,7 +2,9 @@
 # Set up or list the current folder's fleeting notes: the markdown files of its
 # folio notebook, except TODO.md and item details under todo/.
 #
-# Usage: notes.sh init   create the notebook if needed (folio init); prints it
+# Usage: notes.sh init [--local]   create the notebook if needed (folio init,
+#                                  in the owner's store, or with --local a notes/
+#                                  folder in the folder); prints it
 #        notes.sh list   one line per note: file, created, age in days, state
 #
 # A note is stale once older than STALE_DAYS; its created date comes from the
@@ -12,13 +14,13 @@ set -euo pipefail
 
 readonly STALE_DAYS=28
 readonly SECONDS_PER_DAY=86400
-MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
-readonly MEMO_SCRIPT
-
-# Creates the current folder's notebook if needed, and the store's git repo.
+# Creates the current folder's notebook if needed ($1 = --local: as notes/).
 init_notes() {
-  folio init || exit 2
-  "$MEMO_SCRIPT" init >/dev/null
+  if [[ ${1:-} == --local ]]; then
+    folio init --local || exit 2
+  else
+    folio init || exit 2
+  fi
 }
 
 # Prints the created date (YYYY-MM-DD) of a note.
@@ -49,10 +51,10 @@ main() {
   local command="${1:-}"
   command -v folio >/dev/null || { echo "folio is not installed (see mneme's README)" >&2; exit 2; }
   case $command in
-    init) init_notes ;;
+    init) init_notes "${2:-}" ;;
     list) list_notes ;;
     *)
-      echo "usage: notes.sh init|list" >&2
+      echo "usage: notes.sh init [--local] | list" >&2
       exit 64
       ;;
   esac

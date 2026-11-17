@@ -3,7 +3,7 @@ name: note
 description: Fleeting notes for the current project, written only on the user's request - research, design, work in progress - kept in the folder's folio notebook, outside the repo, until converted into the project's docs. User-invoked only. Argument - `<title>[: what to capture]`, `list`, `check`, `convert <note>` or `delete <note>`.
 argument-hint: "<title>[: what] | list | check | convert <note> | delete <note>"
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/notes.sh *), Bash(wkref *), Bash(folio --dir), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/notes.sh *), Bash(wkref *), Bash(folio --dir), Read(~/*/*/notebooks/**), Edit(~/*/*/notebooks/**), Write(~/*/*/notebooks/**), Read(~/**/notes/**), Edit(~/**/notes/**), Write(~/**/notes/**)
 ---
 
 # Note
@@ -12,8 +12,14 @@ Request: $ARGUMENTS
 
 A note is fleeting: it exists to be turned into the project's docs, which do not
 exist yet and are written from the notes later. Notes live in the current folder's
-folio notebook, printed by `folio --dir` (`~/memo/<owner>/<repo>` for a repository),
-beside its `TODO.md` and the item details under `todo/`, never in a project repo. The store is versioned and synced by the memo plugin's hooks.
+folio notebook, printed by `folio --dir` (`~/<host>/<owner>/notebooks/<repo>` for a
+repository, in its owner's store; a `notes/` folder inside any other folder),
+beside its `TODO.md` and the item details under `todo/`, never in a project repo.
+A store is versioned and synced by folio's `folio-sync` service; a local `notes/`
+is neither. With no notebook yet, `notes.sh init` creates it in the owner's store;
+when the parent has no store it fails and folio says so: ask the user whether to
+set up the store first or use a local `notes/` (`notes.sh init --local`), as
+`/todo init` does.
 
 ## Format
 
@@ -62,5 +68,5 @@ Related: [[other-note]]
 ## Never
 
 - Create, convert or delete a note unless the user asked in this session.
-- Commit the store, or write a note into a project repo.
+- Commit a store, or write a note into a project repo.
 - Rename or delete with plain `mv` / `rm`: use `wkref mv` / `wkref rm`.

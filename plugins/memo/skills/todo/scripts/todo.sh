@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Create or check a TODO.md managed by the todo skill.
 #
-# Usage: todo.sh init  [file]   create the file from the template
-#        todo.sh check [file]   check the format, list ticked items
+# Usage: todo.sh init  [--local|file]   create the file from the template
+#        todo.sh check [file]           check the format, list ticked items
 #
 # [file] defaults to TODO.md in the current folder's folio notebook. init
-# creates the notebook (folio init) when the folder has none.
+# creates the notebook when the folder has none: in the owner's notebooks/
+# store (folio init), or with --local as a notes/ folder in the folder
+# (folio init --local). Without --local and without a store, folio refuses
+# and says so.
 # Exit codes: 0 ok, 1 format errors, 2 file missing / not managed / already exists,
 # 64 usage error.
 set -euo pipefail
@@ -13,15 +16,16 @@ set -euo pipefail
 readonly MANAGED_MARKER="<!-- managed by /todo -->"
 readonly TITLE="# TODO"
 readonly SECTION_ORDER=(You Now Next Later)
-MEMO_SCRIPT="$(dirname "$(readlink -f "$0")")/../../../scripts/memo.sh"
-readonly MEMO_SCRIPT
 
 # Prints the default TODO.md path, in the current folder's notebook. With $1 =
-# init, creates the notebook first; otherwise a missing one exits 2.
+# init, creates the notebook first (local with $2 = --local); otherwise a
+# missing one exits 2.
 default_todo_path() {
   local notebook
   command -v folio >/dev/null || { echo "folio is not installed (see mneme's README)" >&2; exit 2; }
-  if [[ ${1:-} == init ]]; then
+  if [[ ${1:-} == init && ${2:-} == --local ]]; then
+    notebook=$(folio init --local) || exit 2
+  elif [[ ${1:-} == init ]]; then
     notebook=$(folio init) || exit 2
   else
     notebook=$(folio --dir) || exit 2
@@ -47,7 +51,6 @@ init_todo() {
     fi
     exit 2
   fi
-  "$MEMO_SCRIPT" init >/dev/null
   {
     echo "$MANAGED_MARKER"
     echo "$TITLE"
@@ -140,12 +143,14 @@ check_todo() {
 
 main() {
   local command="${1:-}" todo_file="${2:-}"
-  [[ -n $todo_file ]] || todo_file=$(default_todo_path "$command")
+  if [[ -z $todo_file || $todo_file == --local ]]; then
+    todo_file=$(default_todo_path "$command" "$todo_file")
+  fi
   case $command in
     init) init_todo "$todo_file" ;;
     check) check_todo "$todo_file" ;;
     *)
-      echo "usage: todo.sh init|check [file]" >&2
+      echo "usage: todo.sh init [--local|file] | check [file]" >&2
       exit 64
       ;;
   esac

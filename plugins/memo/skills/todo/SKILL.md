@@ -2,7 +2,7 @@
 name: todo
 description: Track the current project's open items in its TODO.md, kept in the folder's folio notebook, outside the repo - init, convert, add, answer, finish, reorder, check and fix. Use whenever work leaves something open (a todo, a bug, a question or an action for the user), when the user answers or ticks an item, before a session ends, or when the user asks "what's next". Acts only on a TODO.md managed by /todo. Argument, if any, is an optional `@path/TODO.md` then what to do (e.g. "init", "convert", "add ...", "check").
 argument-hint: "[@path/TODO.md] [init|convert|check|fix|add ...]"
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *), Bash(folio --dir), Bash(folio init), Read(~/memo/**), Edit(~/memo/**), Write(~/memo/**)
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/todo.sh *), Bash(folio --dir), Read(~/*/*/notebooks/**), Edit(~/*/*/notebooks/**), Write(~/*/*/notebooks/**), Read(~/**/notes/**), Edit(~/**/notes/**), Write(~/**/notes/**)
 ---
 
 # TODO
@@ -14,18 +14,23 @@ Request: $ARGUMENTS
 - First argument ending in `.md` (leading `@` optional): that file. Edit a file outside
   the current notebook only when the user names it this way.
 - Otherwise: `TODO.md` in the current folder's notebook, printed by `folio --dir`
-  (`~/memo/<owner>/<repo>` for a repository, `~/memo/<path from ~>` for another
-  folder initialized with `folio init`). This is the
-  script's default when no file is passed. Never write a `TODO.md` into a repo.
-- No notebook here (`folio --dir` fails): only `init` creates one (`folio init`);
-  any other operation relays the message and stops.
+  (`~/<host>/<owner>/notebooks/<repo>` for a repository, in its owner's store; a
+  `notes/` folder inside any other folder). This is the script's default when no
+  file is passed. Never write a `TODO.md` into a repo.
+- No notebook here (`folio --dir` fails): only `init` creates one; any other
+  operation relays the message and stops.
+- `init` with no store in the folder's parent: `todo.sh init` fails and folio's
+  message says so. Ask the user: set up the owner's store first (clone its notes
+  repository into `<parent>/notebooks`, then init again), or a local `notes/`
+  folder in this folder (`todo.sh init --local`, unsynced; inside a repository it
+  would sit in the repo, so recommend the store there). Never choose for them.
 
 A file is managed when its first line is `<!-- managed by /todo -->`. Never edit an
 unmanaged `TODO.md`, except through `convert`.
 
 ## Script
 
-`${CLAUDE_SKILL_DIR}/scripts/todo.sh init|check [file]`. Exit 0 ok, 1 format errors,
+`${CLAUDE_SKILL_DIR}/scripts/todo.sh init [--local|file] | check [file]`. Exit 0 ok, 1 format errors,
 2 missing / not managed / already exists. On exit 2, relay its message and stop: it
 names the command to run (`/todo init` or `/todo convert`). Never create the file
 unasked.
@@ -60,13 +65,14 @@ unasked.
 - `You` items start with `?` (question, with the recommended answer when there is one)
   or `!` (action).
 - `Now` holds one item at most.
-- No `Done` section: a finished item is deleted; the store's git history records it.
+- No `Done` section: a finished item is deleted; the store's git history records it
+  (a local `notes/` keeps no history).
 
 ## Operations
 
-- **Init:** `todo.sh init [file]`. Refuses an existing file.
+- **Init:** `todo.sh init [--local|file]`. Refuses an existing file.
 - **Convert** an existing unmanaged `TODO.md` (the target, or one the user names,
-  e.g. in a repo) into the managed target in the store:
+  e.g. in a repo) into the managed target in the notebook:
   1. Read it. Map each open item to a section, keeping its wording; drop done items.
   2. Content that is not an item (prose, other headings, unclear status): ask the user
      where it goes, or whether to move it to a detail file in `todo/`.
@@ -88,5 +94,5 @@ unasked.
   and lists ticked items waiting for removal. Fix by hand, keeping the wording, and
   rerun until it passes.
 
-Run `check` after every edit. Never commit the store: the memo plugin's hooks commit
-and sync it at session start and end.
+Run `check` after every edit. Never commit a store: folio's `folio-sync` service
+commits and syncs it.

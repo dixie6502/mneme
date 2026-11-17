@@ -10,7 +10,7 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 | Plugin | Job | Skills |
 |---|---|---|
-| `memo` | what is left to do, what is being worked out, in `~/memo` | todo, note |
+| `memo` | what is left to do, what is being worked out, in folio notebooks | todo, note |
 | `memex` | memory: log and knowledge, written from transcripts | log, knowledge |
 | `debrief` | where things stand, from whatever data exists | debrief, sessions |
 
@@ -20,7 +20,7 @@ None depends on another; the full system is all three.
 
 ```
 claude plugin marketplace add dixie6502/mneme
-claude plugin install memo@mneme      # open items and notes (~/memo)
+claude plugin install memo@mneme      # open items and notes (folio notebooks)
 claude plugin install memex@mneme     # memory: log, knowledge, backup
 claude plugin install debrief@mneme   # overview and live sessions
 ```
@@ -28,10 +28,10 @@ claude plugin install debrief@mneme   # overview and live sessions
 Do not enable `memo@mneme` next to another plugin that ships a `todo` skill: both
 would manage open items. `memo` needs [folio](https://github.com/dixie6502/folio)
 on `PATH`, and `note` needs `wkref` for its links. `memo` keeps every `TODO.md` and
-note in the current folder's folio notebook, in `~/memo`, a git repo outside the
-clones (`folio init` gives a folder its notebook); to sync it between
-hosts, give it a private remote (`git -C ~/memo remote add origin <url>`): its hooks
-commit, pull, scan with `gitleaks` and push at session start and end. `memex` writes
+note in the current folder's folio notebook, outside the clones: in the owner's
+`notebooks/` store (clone the owner's notes repository into
+`~/<host>/<owner>/notebooks`), or a local `notes/` folder elsewhere. folio's
+`folio-sync` service syncs the stores; `memo` itself never commits. `memex` writes
 its log to `~/log` and its state to `~/.cache/memex/`; `debrief` keeps its last run
 in `~/.cache/debrief/`. Both expect clones at `~/<Host>/<owner>/<repo>`.
 
@@ -47,8 +47,8 @@ Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
 - `migrate/memex.sh`, with no session writing: moves `~/memex` to `~/knowledge`
   and `~/.cache/recall` to `~/.cache/memex`, then prints the remaining steps
   (reinstall the plugin, rename the `RECALL_BACKUP_*` settings).
-- `migrate/folio.sh --dry-run`, then without `--dry-run`, once folio is
-  installed: turns the memo store's folders into folio notebooks.
+- From `~/memo` to the owners' stores: folio's `migrate/stores.sh` (see folio's
+  `migration.md`).
 
 ## Develop
 
