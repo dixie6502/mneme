@@ -8,13 +8,10 @@
 # Run by the sweep. Restore: ARCHITECTURE.md > Backup.
 # Usage: backup.sh
 set -euo pipefail
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
-readonly TRANSCRIPTS_DIR="$HOME/.claude/projects"
-readonly KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/knowledge}"
 readonly ZSTD_LEVEL=19
 
 fail() { echo "backup: $1" >&2; exit 1; }

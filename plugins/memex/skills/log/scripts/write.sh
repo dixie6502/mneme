@@ -6,7 +6,6 @@
 # pushed. Safe to re-run: a transcript is only ever logged from where it was left.
 # Usage: write.sh <transcript.jsonl>
 set -euo pipefail
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
 TRANSCRIPT=$1
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
@@ -53,17 +52,19 @@ summarise() {
 
 # Sonnet's safeguards refuse some harmless security-adjacent sessions (hardware,
 # RFID); Haiku's do not. Both refusing: skip the part rather than retry it daily.
-reply=$(summarise sonnet)
-if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
-  echo "$session: refused by sonnet, retrying with haiku" >&2
-  reply=$(summarise haiku)
-  if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
-    if ((remembers == 0)); then
-      mark_skipped "$to_line" "refused by both models: lines $from_line-$to_line not logged"
-      exit 0
-    fi
-    reply=$(jq -c --argjson only "$REMEMBER_ONLY" '.output = $only' <<<"$reply")
+# True when a reply (from summarise) is a refusal.
+is_refused() { [[ $(jq -r '.stop_reason' <<<"$1") == refusal ]]; }
+for model in sonnet haiku; do
+  reply=$(summarise "$model")
+  is_refused "$reply" || break
+  echo "$session: refused by $model" >&2
+done
+if is_refused "$reply"; then
+  if ((remembers == 0)); then
+    mark_skipped "$to_line" "refused by both models: lines $from_line-$to_line not logged"
+    exit 0
   fi
+  reply=$(jq -c --argjson only "$REMEMBER_ONLY" '.output = $only' <<<"$reply")
 fi
 result=$(jq -c '.output' <<<"$reply")
 if [[ $result == null || -z $result ]]; then

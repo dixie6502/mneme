@@ -11,14 +11,13 @@
 #        dream.sh list [owner]       proposals of the current scope (or owner) and global
 #        dream.sh approve <id>... [reason]  approve, then apply in the background
 #        dream.sh reject <id>... [reason]   decline: never proposed again
+#        dream.sh retire <entry>...  retire entries the user names, at once
+#        dream.sh apply              apply every approved proposal (the background job)
 #
 # Each decision is recorded against the model's confidence; the history tunes later
 # dreams, and the track record shows when a kind could run unattended.
-#        dream.sh retire <entry>...  retire entries the user names, at once
-#        dream.sh apply              apply every approved proposal (the background job)
 # Exit codes: 0 ok, 1 failure, 64 usage.
 set -euo pipefail
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 SKILL_DIR=$(dirname "$SCRIPT_DIR")
@@ -27,7 +26,6 @@ source "$SKILL_DIR/../log/scripts/common.sh"
 # shellcheck source=writer.sh
 source "$SCRIPT_DIR/writer.sh"
 readonly KNOWLEDGE_SCRIPT="$SCRIPT_DIR/knowledge.sh"
-readonly KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/knowledge}"   # override for tests only
 readonly PROPOSALS_PATH=.dream/proposals.json      # relative to the store
 readonly PROPOSALS="$KNOWLEDGE_DIR/$PROPOSALS_PATH"
 readonly DREAMED_DIR="$STATE_DIR/knowledge-dreamed"    # per layer: its last commit dreamed
@@ -37,8 +35,8 @@ readonly MIN_DECISIONS_UNATTENDED=10               # a kind is ready to run unat
 readonly MIN_AGREEMENT_PERCENT=90                  # ... with this share approved
 readonly LONG_ENTRY_LINES=80                       # about a screen
 readonly RECENT_DAYS=7                             # applied or skipped, still listed
-readonly LOCK_WAIT_SECONDS=30                      # for the user's approve and reject
 readonly PENDING='["open", "approved", "failed"]'  # a layer with these is not dreamed
+readonly DECIDABLE='["open", "failed"]'            # statuses the user can decide on
 # Sonnet's safeguards refuse some harmless security-adjacent content; Haiku's do not.
 readonly MODELS=(sonnet haiku)
 
@@ -62,18 +60,6 @@ readonly DECISIONS_JQ='
           | map({confidence: .[0].confidence, decided: length, approved: approvals}))});'
 
 fail() { echo "knowledge dream: $1" >&2; exit 1; }
-today() { date +%F; }
-stamp() { echo "$(today) · $(hostname)"; }
-
-# Takes the store's writer lock: waits for it, or gives up after a while (user commands).
-lock_store() {
-  exec 8>"$KNOWLEDGE_DIR/.lock"
-  if [[ ${1:-} == --briefly ]]; then
-    flock -w "$LOCK_WAIT_SECONDS" 8 || fail "knowledge is busy (the sweep is writing); try again later"
-  else
-    flock 8
-  fi
-}
 
 # Prints the proposals file, or an empty one.
 read_proposals() {
@@ -91,8 +77,7 @@ commit_proposals() {
     <<<"$json" >/dev/null 2>&1 || fail "refusing to write invalid proposals ($message)"
   mkdir -p "$(dirname "$PROPOSALS")"
   jq . <<<"$json" >"$PROPOSALS.new" && mv "$PROPOSALS.new" "$PROPOSALS"
-  git -C "$KNOWLEDGE_DIR" add -- "$PROPOSALS_PATH" "$@"
-  git -C "$KNOWLEDGE_DIR" diff --cached --quiet || git -C "$KNOWLEDGE_DIR" commit -q -m "$message"
+  commit_store "$message" "$PROPOSALS_PATH" "$@"
 }
 
 # Prints non-empty input lines as a JSON array.
@@ -135,7 +120,9 @@ ask_model() {
     # claude exits non-zero on a refusal; its JSON still says why, so read it anyway.
     reply=$({ run_in_layer "$access" "$model" "$layer" "$prompt_file" "$input" \
       --output-format json --json-schema "$(<"$schema_file")" || true; } |
-      jq -c '{output: .structured_output, stop_reason}' 2>/dev/null) || reply='{"output": null}'
+      jq -c '{output: .structured_output, stop_reason}' 2>/dev/null) || reply=""
+    # No reply at all (claude crashed, printed nothing) counts as no answer.
+    [[ -n $reply ]] || reply='{"output": null}'
     if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
       echo "knowledge dream: $model refused layer $layer" >&2
       continue
@@ -168,12 +155,9 @@ propose() {
         | {kind, entries, summary, confidence, decision: decision, note}] | .[-$max:]' \
       <<<"$proposals")
     record=$(jq -c "$DECISIONS_JQ track_record" <<<"$proposals")
-    input=$(jq -n -c --arg layer "$layer" --arg today "$(today)" \
-      --argjson own "$(layer_entries "$layer")" --argjson global "$(layer_entries global)" \
+    input=$(jq -n -c --argjson base "$(layer_input "$layer")" \
       --argjson hints "$(layer_hints "$layer")" --argjson history "$history" \
-      --argjson record "$record" \
-      '{layer: $layer, today: $today, entries: {($layer): $own, global: $global},
-        hints: $hints, history: $history, track_record: $record}')
+      --argjson record "$record" '$base + {hints: $hints, history: $history, track_record: $record}')
     output=$(ask_model read "$layer" "$SKILL_DIR/dream-prompt.md" \
       "$SKILL_DIR/dream-schema.json" "$input")
     if [[ $output == null ]]; then
@@ -258,10 +242,10 @@ leading_ids() {
 
 # Records the user's decision on proposals, with the reason after the ids if any;
 # prints the updated proposals.
-# Usage: decide approved|rejected <allowed current statuses, JSON> <id>... [reason]
+# Usage: decide approved|rejected <id>... [reason]
 decide() {
-  local status=$1 allowed=$2 id_list note ids missing proposals
-  shift 2
+  local status=$1 id_list note ids missing proposals
+  shift
   id_list=$(leading_ids "$@")
   [[ -n $id_list ]] || { echo "usage: dream.sh approve|reject <id>... [reason]" >&2; exit 64; }
   read -ra id_args <<<"$id_list"
@@ -269,7 +253,7 @@ decide() {
   note="$*"
   ids=$(printf '%s\n' "${id_args[@]}" | jq -R tonumber | jq -s -c .)
   proposals=$(read_proposals)
-  missing=$(jq -r --argjson ids "$ids" --argjson allowed "$allowed" \
+  missing=$(jq -r --argjson ids "$ids" --argjson allowed "$DECIDABLE" \
     '$ids - [.proposals[] | select(.status | IN($allowed[])) | .id]
      | map(tostring) | join(", ")' <<<"$proposals")
   [[ -z $missing ]] || fail "no proposal $missing waiting for a decision"
@@ -281,21 +265,24 @@ decide() {
        else . end)' <<<"$proposals"
 }
 
-approve() {
+# Records and commits the user's decision on proposals, under the lock.
+# Usage: record_decision approved|rejected <commit verb> <id>... [reason]
+record_decision() {
+  local status=$1 verb=$2 updated
+  shift 2
   lock_store --briefly
-  local updated ids
-  updated=$(decide approved '["open", "failed"]' "$@")
-  ids=$(leading_ids "$@")
-  commit_proposals "Approve dream proposals $ids ($(stamp))" <<<"$updated"
+  updated=$(decide "$status" "$@")
+  commit_proposals "$verb dream proposals $(leading_ids "$@") ($(stamp))" <<<"$updated"
+}
+
+approve() {
+  record_decision approved Approve "$@"
   apply_in_background
-  echo "Applying proposal(s) $ids in the background: \`/knowledge dream\` shows the result in a minute or two."
+  echo "Applying proposal(s) $(leading_ids "$@") in the background: \`/knowledge dream\` shows the result in a minute or two."
 }
 
 # Starts the apply job; it takes the lock itself, once this command has released it.
-apply_in_background() {
-  mkdir -p "$STATE_DIR"
-  setsid nohup "$0" apply >>"$RUN_LOG" 2>&1 </dev/null 8>&- &
-}
+apply_in_background() { detach "$0" apply 8>&-; }
 
 # Retires entries the user names: an approved proposal each, applied at once.
 retire() {
@@ -322,12 +309,8 @@ retire() {
 }
 
 reject() {
-  lock_store --briefly
-  local updated ids
-  updated=$(decide rejected '["open", "failed"]' "$@")
-  ids=$(leading_ids "$@")
-  commit_proposals "Decline dream proposals $ids ($(stamp))" <<<"$updated"
-  echo "Declined proposal(s) $ids: they will not be proposed again; your decision feeds the next dreams."
+  record_decision rejected Decline "$@"
+  echo "Declined proposal(s) $(leading_ids "$@"): they will not be proposed again; your decision feeds the next dreams."
 }
 
 # Drops repeated links, links to the entry itself and links to a dropped name from a
@@ -400,11 +383,8 @@ apply() {
       | select(.layer == $layer and .status == "approved")
       | {id, kind, entries, into, summary, change}]')
     ids=$(jq -r 'map(.id | tostring) | join(", ")' <<<"$batch")
-    input=$(jq -n -c --arg layer "$layer" --arg today "$(today)" --arg host "$(hostname)" \
-      --argjson own "$(layer_entries "$layer")" --argjson global "$(layer_entries global)" \
-      --argjson proposals "$batch" \
-      '{layer: $layer, today: $today, host: $host,
-        entries: {($layer): $own, global: $global}, proposals: $proposals}')
+    input=$(jq -n -c --argjson base "$(layer_input "$layer")" --arg host "$(hostname)" \
+      --argjson proposals "$batch" '$base + {host: $host, proposals: $proposals}')
     output=$(ask_model edit "$layer" "$SKILL_DIR/apply-prompt.md" \
       "$SKILL_DIR/apply-schema.json" "$input")
     results=$(jq -c 'if . == null then [] else .results end' <<<"$output")
@@ -433,13 +413,14 @@ apply() {
         continue
       fi
     fi
-    git -C "$KNOWLEDGE_DIR" stash push -q -u -m "knowledge: failed applying dream proposals $ids to $layer"
-    read_proposals | jq --argjson batch "$batch" --arg today "$(today)" '
+    local reason="check failed; attempt kept in \`git -C ~/knowledge stash list\`"
+    [[ $output != null ]] || reason="no answer from the model"
+    stash_attempt "applying dream proposals $ids to $layer failed"
+    read_proposals | jq --argjson batch "$batch" --arg today "$(today)" --arg reason "$reason" '
       ($batch | map(.id)) as $ids
       | .proposals |= map(if (.id | IN($ids[])) then .status = "failed" | .updated = $today
-          | .reason = "check failed; attempt kept in `git -C ~/knowledge stash list`" else . end)' |
+          | .reason = $reason else . end)' |
       commit_proposals "Dream proposals $ids failed for $layer ($(stamp))"
-    echo "knowledge dream: applying proposals $ids to $layer failed; attempt kept in git stash" >&2
   done
 }
 

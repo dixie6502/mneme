@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -201,22 +202,13 @@ def render_session(session: Session, pane: Pane | None, is_own: bool) -> list[st
 def main() -> None:
     """Print the sessions and panes, or the one-line count for debrief."""
     sessions = list_sessions()
-    panes = list_panes()
     own_chain = ancestors(os.getpid())
-    pane_of_session: dict[int, Pane | None] = {}
-    for session in sessions:
-        chain = ancestors(session.pid)
-        pane_of_session[session.pid] = next(
-            (panes[pid] for pid in chain if pid in panes), None
-        )
     own_pid = next((s.pid for s in sessions if s.pid in own_chain), 0)
 
     if "--count" in sys.argv[1:]:
         others = [session for session in sessions if session.pid != own_pid]
         if others:
-            statuses: dict[str, int] = {}
-            for session in others:
-                statuses[session.status] = statuses.get(session.status, 0) + 1
+            statuses = Counter(session.status for session in others)
             summary = ", ".join(
                 f"{status} {count}" for status, count in statuses.items()
             )
@@ -225,6 +217,13 @@ def main() -> None:
             )
         return
 
+    panes = list_panes()
+    pane_of_session = {
+        session.pid: next(
+            (panes[pid] for pid in ancestors(session.pid) if pid in panes), None
+        )
+        for session in sessions
+    }
     claude_panes = {id(pane) for pane in pane_of_session.values() if pane}
     print("**Claude sessions**\n")
     for session in sessions:

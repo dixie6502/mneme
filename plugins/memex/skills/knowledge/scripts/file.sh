@@ -21,8 +21,7 @@ readonly CURSOR_DIR="$STATE_DIR/knowledge-filed"     # per scope: entries.jsonl 
 readonly MAX_ITEMS_PER_RUN=25                     # log items per model run
 
 [[ -f $ENTRIES ]] || exit 0
-exec 8>"$KNOWLEDGE_DIR/.lock"
-flock 8
+lock_store
 
 stash_leftovers filing
 
@@ -30,36 +29,48 @@ mkdir -p "$CURSOR_DIR"
 # Prints how many lines of entries.jsonl a scope has filed (0 for a new scope).
 filed_lines() { cat "$CURSOR_DIR/$1" 2>/dev/null || echo 0; }
 
-# Scope of an entry: its directory's owner; from home or scratch, the single owner
-# of the repos it committed to, else global. Several owners: skipped, reported.
-scope_of_entry() {
-  local cwd_scope repo_owners
-  cwd_scope=$("$KNOWLEDGE_SCRIPT" scope "$1")
-  if [[ $cwd_scope != global ]]; then echo "$cwd_scope"; return; fi
-  repo_owners=$(jq -r '.repos[]? | split("/") | select(length >= 3) | .[1]' <<<"$2" | sort -u)
-  case $(grep -c . <<<"$repo_owners") in
-    0) echo global ;;
-    1) echo "$repo_owners" ;;
-    *) echo "" ;;
-  esac
+# One pass over the log: for each entry with found / decided / remember facts, its
+# line number, cwd, session, the owners of its repos (comma-separated) and the item
+# to file, separated by US (\x1f: not whitespace, so empty fields survive `read`).
+# Unparsable lines are skipped but counted, so line numbers match the file.
+log_items() {
+  jq -n -R -r '
+    foreach inputs as $raw (0; . + 1; . as $line
+      | ($raw | fromjson?) // empty
+      | select((.found | length) + (.decided | length) + ((.remember // []) | length) > 0)
+      | [$line, (.cwd // ""), .session,
+         ([(.repos // [])[] | split("/") | select(length >= 3) | .[1] | select(. != "")]
+           | unique | join(",")),
+         ({line: $line, end, topic, repos, found: [.found[].text], decided,
+           remember: (.remember // [])} | tojson)]
+      | map(tostring) | join("\u001f"))' "$ENTRIES"
 }
 
-declare -A items_by_scope=()
-line_number=0
-while IFS= read -r entry; do
-  line_number=$((line_number + 1))
-  jq -e '(.found | length) + (.decided | length) + ((.remember // []) | length) > 0' \
-    <<<"$entry" >/dev/null || continue
-  scope=$(scope_of_entry "$(jq -r '.cwd // ""' <<<"$entry")" "$entry")
-  if [[ -z $scope ]]; then
-    echo "knowledge: entry $(jq -r '.session' <<<"$entry") spans several owners, not filed" >&2
-    continue
+# Scope of an entry: its directory's owner; from home or scratch, the single owner
+# of the repos it committed to, else global. Several owners: skipped, reported.
+# Scopes and cursors are cached per run: the log grows forever.
+# Read whole first: a jq error then stops the run, instead of silently ending the loop.
+log=$(log_items)
+declare -A items_by_scope=() scope_of_cwd=() filed_by_scope=()
+while IFS=$'\x1f' read -r line_number cwd session owners item; do
+  [[ -n $line_number ]] || continue   # an empty log yields one empty line
+  # The key gets a suffix: an associative array refuses an empty key.
+  [[ -v scope_of_cwd["$cwd/"] ]] || scope_of_cwd["$cwd/"]=$("$KNOWLEDGE_SCRIPT" scope "$cwd")
+  scope=${scope_of_cwd["$cwd/"]}
+  if [[ $scope == global ]]; then
+    case $owners in
+      "") ;;
+      *,*)
+        echo "knowledge: entry $session spans several owners, not filed" >&2
+        continue
+        ;;
+      *) scope=$owners ;;
+    esac
   fi
-  ((line_number > $(filed_lines "$scope"))) || continue
-  items_by_scope[$scope]+=$(jq -c --argjson line "$line_number" '{line: $line, end,
-    topic, repos, found: [.found[].text], decided, remember: (.remember // [])}' \
-    <<<"$entry")$'\n'
-done <"$ENTRIES"
+  [[ -v filed_by_scope[$scope] ]] || filed_by_scope[$scope]=$(filed_lines "$scope")
+  ((line_number > ${filed_by_scope[$scope]})) || continue
+  items_by_scope[$scope]+=$item$'\n'
+done <<<"$log"
 ((${#items_by_scope[@]})) || exit 0
 
 # Global first, so owner layers can link to entries it just created.
@@ -67,32 +78,24 @@ readarray -t scopes < <(printf '%s\n' "${!items_by_scope[@]}" |
   awk '$0 == "global" { print; next } { rest = rest $0 "\n" } END { printf "%s", rest }')
 failed=0
 for scope in "${scopes[@]}"; do
-  scope_failed=0
   "$KNOWLEDGE_SCRIPT" init "$scope" >/dev/null
   readarray -t items < <(grep . <<<"${items_by_scope[$scope]}")
   for ((start = 0; start < ${#items[@]}; start += MAX_ITEMS_PER_RUN)); do
     chunk=$(printf '%s\n' "${items[@]:start:MAX_ITEMS_PER_RUN}")
-    input=$(jq -s -c \
-      --arg layer "$scope" --arg today "$(date +%F)" --arg host "$(hostname)" \
-      --argjson own "$(layer_entries "$scope")" --argjson global "$(layer_entries global)" \
-      '{layer: $layer, today: $today, host: $host,
-        entries: {($layer): $own, global: $global}, log: map(del(.line))}' <<<"$chunk")
+    input=$(jq -s -c --argjson base "$(layer_input "$scope")" --arg host "$(hostname)" \
+      '$base + {host: $host, log: map(del(.line))}' <<<"$chunk")
     run_in_layer edit sonnet "$scope" "$SKILL_DIR/file-prompt.md" "$input" || true
     # Permissions confine writes to the layer; this check is the second line.
     outside=$(changes_outside "$scope")
     if [[ -z $outside ]] && "$KNOWLEDGE_SCRIPT" gate >/dev/null; then
-      git -C "$KNOWLEDGE_DIR" add -- "$scope"
-      git -C "$KNOWLEDGE_DIR" diff --cached --quiet ||
-        git -C "$KNOWLEDGE_DIR" commit -q -m "File log items into $scope ($(date +%F) · $(hostname))"
+      commit_store "File log items into $scope ($(stamp))" "$scope"
       jq -s 'map(.line) | max' <<<"$chunk" >"$CURSOR_DIR/$scope"
     else
-      git -C "$KNOWLEDGE_DIR" stash push -q -u -m "knowledge: failed check filing into $scope" -- "$scope"
-      echo "knowledge: check failed filing into $scope; attempt kept in git stash" >&2
-      scope_failed=1
+      stash_attempt "check failed filing into $scope" "$scope"
+      failed=1
       break
     fi
   done
-  ((scope_failed == 0)) || failed=1
 done
 
 exit "$failed"

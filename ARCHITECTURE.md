@@ -170,7 +170,7 @@ skills/log/
   scripts/sweep.sh    catch-up: every transcript idle an hour or more
   scripts/backup.sh   encrypted backup of transcripts, log and knowledge
   scripts/logged-line.sh  last line already covered, per session
-  scripts/common.sh   shared paths
+  scripts/common.sh   shared paths, PATH and detach (log and knowledge scripts)
   write-prompt.md     instructions for the writer's model run
   schema.json         the entry the model fills
 ```
@@ -311,8 +311,8 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 - **Interrupted runs**: a writer cut short (a shutdown mid-edit) leaves the store
   uncommitted. The next writer, holding the lock, moves such changes to `git stash`
   before it starts, so filing and dream never stall on them; `debrief` counts them.
-- `scripts/writer.sh` holds what the writers share: the confined model run, the
-  outside-the-layer check, the layer's entry list.
+- `scripts/writer.sh` holds what the writers share: the lock, the confined model
+  run, the outside-the-layer check, commit and stash, the model input's base.
 
 ### Dream
 

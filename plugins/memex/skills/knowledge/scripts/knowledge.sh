@@ -17,11 +17,12 @@
 # Exit codes: 0 ok, 1 check failed, 2 no store yet, 64 usage.
 set -euo pipefail
 
-readonly KNOWLEDGE_DIR="${KNOWLEDGE_DIR:-$HOME/knowledge}"   # override for tests only
-readonly GLOBAL_LAYER=global
-readonly MAX_LINES_PER_ENTRY=5
 SKILL_DIR=$(dirname "$(dirname "$(readlink -f "$0")")")
 readonly SKILL_DIR
+# shellcheck source=../../log/scripts/common.sh
+source "$SKILL_DIR/../log/scripts/common.sh"
+readonly GLOBAL_LAYER=global
+readonly MAX_LINES_PER_ENTRY=5
 
 # Prints the owner of a directory under ~/<Host>/<owner>/<repo>, else "global".
 scope_of() {
@@ -103,13 +104,19 @@ find_entries() {
   done < <(rg -i -l --glob '*.md' -- "$pattern" "${layers[@]}" | sort)
 }
 
+# Prints the path of every entry, NUL-terminated: markdown files in the layers.
+store_entries() {
+  find "$KNOWLEDGE_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0
+}
+
 # Prints "<basename> <layer>" for every entry.
 entry_layers() {
-  local entry
+  local entry name
   while IFS= read -r -d '' entry; do
     entry=${entry#"$KNOWLEDGE_DIR"/}
-    echo "$(basename "$entry" .md) ${entry%%/*}"
-  done < <(find "$KNOWLEDGE_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0)
+    name=${entry##*/}
+    echo "${name%.md} ${entry%%/*}"
+  done < <(store_entries)
 }
 
 # Reports links that point down (global → owner) or across (owner → other owner).
@@ -127,7 +134,7 @@ check_upward_links() {
       echo "link not upward: ${entry#"$KNOWLEDGE_DIR"/} → [[$target]] ($target_layer)"
       violations=$((violations + 1))
     done < <(grep -o '\[\[[^]]*\]\]' "$entry" | sed -E 's/^\[\[([^]|#]*).*/\1/' | sort -u)
-  done < <(find "$KNOWLEDGE_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0)
+  done < <(store_entries)
   ((violations == 0))
 }
 
@@ -149,7 +156,7 @@ check_paths() {
       fi
     done < <(awk '/^## /{in_paths = ($0 == "## Paths"); next}
       in_paths && match($0, /^- `[^`]+`/) {print substr($0, RSTART + 3, RLENGTH - 4)}' "$entry")
-  done < <(find "$KNOWLEDGE_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0)
+  done < <(store_entries)
   ((dead == 0))
 }
 
@@ -160,11 +167,12 @@ check_names() {
   while IFS= read -r -d '' entry; do
     entry=${entry#"$KNOWLEDGE_DIR"/}
     layer=${entry%%/*}
-    name=$(basename "$entry" .md)
+    name=${entry##*/}
+    name=${name%.md}
     [[ $layer == "$GLOBAL_LAYER" || $name == "$layer" || $name == "$layer"-* ]] && continue
     echo "name without owner prefix: $entry"
     violations=$((violations + 1))
-  done < <(find "$KNOWLEDGE_DIR" -mindepth 2 -name '*.md' -not -path '*/.*' -print0)
+  done < <(store_entries)
   ((violations == 0))
 }
 

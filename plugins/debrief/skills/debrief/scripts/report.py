@@ -25,9 +25,11 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 
 HOME = Path.home()
@@ -79,12 +81,14 @@ class Project:
     is_issues_unreadable: bool = False
 
 
-def clone_paths(pattern: str) -> list[Path]:
-    """Matches of a glob under $HOME, skipping hidden folders (.cache, .local, ...)."""
-    return sorted(
-        path
-        for path in HOME.glob(pattern)
-        if not path.relative_to(HOME).parts[0].startswith(".")
+@cache
+def clone_paths(pattern: str) -> tuple[Path, ...]:
+    """Matches of a glob under $HOME. Hidden top-level folders (.cache, .local, ...)
+    are skipped without descending into them: they hold most of a home's folders."""
+    top_pattern, _, rest = pattern.partition("/")
+    tops = [top for top in HOME.glob(top_pattern) if not top.name.startswith(".")]
+    return tuple(
+        sorted(path for top in tops for path in (top.glob(rest) if rest else [top]))
     )
 
 
@@ -143,17 +147,33 @@ def run(command: list[str]) -> str:
     return result.stdout if result.returncode == 0 else ""
 
 
+def read_last_debrief() -> str:
+    """Time of the previous unfiltered debrief (ISO UTC), or "" if none recorded."""
+    return LAST_DEBRIEF_FILE.read_text().strip() if LAST_DEBRIEF_FILE.exists() else ""
+
+
+def days_since(timestamp: float) -> int:
+    """Whole days elapsed since a Unix time."""
+    return int((datetime.now().timestamp() - timestamp) / SECONDS_PER_DAY)
+
+
+def display_name(path: str) -> str:
+    """A path from ~ as shown in the report: GitHub clones without the host, ~ for home
+    (relative ".", or absolute in entries logged from ~)."""
+    return "~" if path in (".", str(HOME)) else path.removeprefix("GitHub/")
+
+
 def matches(project_filter: str, name: str) -> bool:
     """True when the filter is in the name, ignoring case (folio lowercases repos)."""
     return project_filter.lower() in name.lower()
 
 
 def parse_arguments(arguments: list[str]) -> tuple[bool, str, str]:
-    """Split the arguments into `all`, the log selection (last or N) and the filter."""
+    """Split the arguments into `all`, the log selection (last, N or "") and the filter."""
     is_all = bool(arguments) and arguments[0] == "all"
     if is_all:
         arguments = arguments[1:]
-    selection = str(DEFAULT_ENTRIES_SHOWN)
+    selection = ""
     if arguments and (
         arguments[0] == "last" or re.fullmatch(r"[1-9]\d*", arguments[0])
     ):
@@ -243,17 +263,14 @@ def read_log_entries(selection: str, project_filter: str) -> tuple[list[dict], s
         ]
     entries.sort(key=lambda entry: entry["end"])
     if selection == "last":
-        since = (
-            LAST_DEBRIEF_FILE.read_text().strip() if LAST_DEBRIEF_FILE.exists() else ""
-        )
+        since = read_last_debrief()
         if since:
             shown = [entry for entry in entries if entry["end"] > since]
             return shown, f"since the last debrief, {format_time(since)}"
-        selection = str(DEFAULT_ENTRIES_SHOWN)
-        return entries[
-            -int(selection) :
-        ], f"latest {selection}, no previous debrief recorded"
-    return entries[-int(selection) :], f"latest {selection}"
+        latest = entries[-DEFAULT_ENTRIES_SHOWN:]
+        return latest, f"latest {DEFAULT_ENTRIES_SHOWN}, no previous debrief recorded"
+    count = int(selection) if selection else DEFAULT_ENTRIES_SHOWN
+    return entries[-count:], f"latest {count}"
 
 
 def entry_repos(entry: dict) -> list[str]:
@@ -282,7 +299,7 @@ def collect_local_state(project_filter: str) -> list[str]:
         unpushed_text = f"{unpushed.strip()} unpushed" if unpushed else "no upstream"
         if changed or unpushed_text != "0 unpushed":
             lines.append(
-                f"- `{path.removeprefix('GitHub/')}`: {changed} uncommitted, {unpushed_text}"
+                f"- `{display_name(path)}`: {changed} uncommitted, {unpushed_text}"
             )
     return lines
 
@@ -332,13 +349,10 @@ def render_memory_line(project_filter: str) -> list[str]:
             continue
         directory = path_by_slug.get(memory.parent.name)
         name = str(directory.relative_to(HOME)) if directory else memory.parent.name
-        name = name.removeprefix("GitHub/") if name != "." else "~"
+        name = display_name(name)
         if not matches(project_filter, name):
             continue
-        oldest_days = int(
-            (datetime.now().timestamp() - min(note.stat().st_mtime for note in notes))
-            / SECONDS_PER_DAY
-        )
+        oldest_days = days_since(min(note.stat().st_mtime for note in notes))
         parts.append(
             f"`{name}` {len(notes)} note{'s' if len(notes) > 1 else ''} "
             f"(oldest {oldest_days} d)"
@@ -362,8 +376,7 @@ def note_age_days(note: Path) -> int:
                 except (IndexError, ValueError):
                     pass
                 break
-    created = created or datetime.fromtimestamp(note.stat().st_mtime)
-    return int((datetime.now() - created).total_seconds() // SECONDS_PER_DAY)
+    return days_since(created.timestamp() if created else note.stat().st_mtime)
 
 
 def render_stale_notes_line(project_filter: str) -> list[str]:
@@ -385,7 +398,7 @@ def render_knowledge_changes() -> list[str]:
     """Knowledge entries changed since the last unfiltered debrief (all, if none yet)."""
     if not (KNOWLEDGE_DIR / ".git").exists():
         return []
-    since = LAST_DEBRIEF_FILE.read_text().strip() if LAST_DEBRIEF_FILE.exists() else ""
+    since = read_last_debrief()
     command = ["git", "-C", str(KNOWLEDGE_DIR), "log", "--name-only", "--format="]
     if since:
         command.append(f"--since={since}")
@@ -405,10 +418,9 @@ def render_dream_line() -> list[str]:
     if not DREAM_PROPOSALS.exists():
         return []
     proposals = json.loads(DREAM_PROPOSALS.read_text()).get("proposals", [])
-    to_review: dict[str, int] = {}
-    for proposal in proposals:
-        if proposal.get("status") == "open":
-            to_review[proposal["layer"]] = to_review.get(proposal["layer"], 0) + 1
+    to_review = Counter(
+        proposal["layer"] for proposal in proposals if proposal.get("status") == "open"
+    )
     failed = sum(1 for proposal in proposals if proposal.get("status") == "failed")
     parts = []
     if to_review:
@@ -455,10 +467,7 @@ def render_backup_line() -> list[str]:
     see_log = f"see `~/{RUN_LOG.relative_to(HOME)}`"
     if not LAST_BACKUP_FILE.exists():
         return [f"- Backup: no success yet, {see_log}"]
-    age_days = int(
-        (datetime.now().timestamp() - LAST_BACKUP_FILE.stat().st_mtime)
-        / SECONDS_PER_DAY
-    )
+    age_days = days_since(LAST_BACKUP_FILE.stat().st_mtime)
     if age_days < BACKUP_MAX_AGE_DAYS:
         return []
     return [f"- Backup: last success {age_days} d ago, {see_log}"]
@@ -474,7 +483,7 @@ def render_project_line(project: Project) -> str:
         parts.append(f"next: {upcoming[0].text}")
     elif project.todo:
         parts.append("idle")
-    remaining_next = len(upcoming) - (0 if now else min(len(upcoming), 1))
+    remaining_next = len(upcoming) if now else max(len(upcoming) - 1, 0)
     if remaining_next:
         parts.append(f"+{remaining_next} next")
     if project.todo.get("Later"):
@@ -516,9 +525,7 @@ def render_project_in_full(project: Project) -> list[str]:
 
 def render_entry(entry: dict, is_in_full: bool) -> list[str]:
     """One log entry: its topic line, and with is_in_full its Done/Found/Decided."""
-    repos = ", ".join(
-        f"`{repo.removeprefix('GitHub/')}`" for repo in entry_repos(entry)
-    )
+    repos = ", ".join(f"`{display_name(repo)}`" for repo in entry_repos(entry))
     lines = [f"- {format_time(entry['end'])} · {repos} · {entry['topic']}"]
     if is_in_full:
         lines += [

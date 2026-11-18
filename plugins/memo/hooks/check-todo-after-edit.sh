@@ -5,16 +5,14 @@
 set -euo pipefail
 
 readonly TODO_SCRIPT="${CLAUDE_PLUGIN_ROOT}/skills/todo/scripts/todo.sh"
-readonly MANAGED_MARKER="<!-- managed by /todo -->"
+readonly NOT_MANAGED=2   # todo.sh check's exit code for a missing or unmanaged file
 
 edited_file=$(jq -r '.tool_input.file_path // empty')
-[[ $(basename "$edited_file") == TODO.md && -f $edited_file ]] || exit 0
+[[ $(basename "$edited_file") == TODO.md ]] || exit 0
 
-first_line=""
-IFS= read -r first_line <"$edited_file" || true
-[[ $first_line == "$MANAGED_MARKER" ]] || exit 0
-
-if ! check_output=$("$TODO_SCRIPT" check "$edited_file" 2>&1); then
+check_status=0
+check_output=$("$TODO_SCRIPT" check "$edited_file" 2>&1) || check_status=$?
+if ((check_status != 0 && check_status != NOT_MANAGED)); then
   echo "$check_output" >&2
   exit 2
 fi

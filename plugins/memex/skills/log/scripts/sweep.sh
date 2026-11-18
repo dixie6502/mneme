@@ -7,8 +7,10 @@ set -uo pipefail
 
 readonly IDLE_MINUTES=60
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
 
-find "$HOME/.claude/projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' \
+find "$TRANSCRIPTS_DIR" -mindepth 2 -maxdepth 2 -name '*.jsonl' \
   -mmin +"$IDLE_MINUTES" -print0 |
   while IFS= read -r -d '' transcript; do
     "$SCRIPT_DIR/write.sh" "$transcript" || echo "failed: $transcript" >&2

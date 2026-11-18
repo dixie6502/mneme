@@ -16,7 +16,6 @@ readonly SWEEP_INTERVAL_MINUTES=1440
 
 input=$(cat)
 mkdir -p "$STATE_DIR"
-detach() { setsid nohup "$@" >>"$RUN_LOG" 2>&1 </dev/null & }
 
 case $(jq -r '.hook_event_name // empty' <<<"$input") in
   SessionEnd | PreCompact)
