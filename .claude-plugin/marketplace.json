@@ -3,13 +3,8 @@
   "owner": {
     "name": "dixie6502"
   },
-  "description": "An agent's information system: log, knowledge, note, todo, debrief.",
+  "description": "An agent's memory: log, knowledge, debrief.",
   "plugins": [
-    {
-      "name": "memo",
-      "source": "./plugins/memo",
-      "description": "Open items (TODO.md) and fleeting notes, per folder, in folio notebooks outside the repos, synced."
-    },
     {
       "name": "memex",
       "source": "./plugins/memex",

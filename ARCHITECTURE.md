@@ -1,9 +1,9 @@
 # Architecture
 
-mneme is an information system for a Claude Code agent (dixie): what happened,
-what is known, what is being worked out, what is left to do, and where things
-stand. It ships as a Claude Code marketplace with three plugins, none depending on
-another.
+mneme is the memory of a Claude Code agent (dixie): what happened, what is
+known, and where things stand. It ships as a Claude Code marketplace with two
+plugins, neither depending on the other. What is authored (open items and notes)
+is the `memo` plugin of the toolshed marketplace (moved there on 2026-11-18).
 
 Status: everything is built. The knowledge dream pass runs in propose mode:
 nothing changes without the user's approval. See `README.md`.
@@ -15,18 +15,16 @@ Claude transcripts   raw, append-only, the only source of truth
   └─► log            episodic: what happened, per session          (derived)
         └─► knowledge  semantic: linked facts inferred from the log  (derived)
 
-notes                fleeting: what is being worked out → docs      (authored)
-TODO.md              open items: what is left to do                 (authored)
+notes                fleeting: what is being worked out → docs      (authored, memo)
+TODO.md              open items: what is left to do                 (authored, memo)
 debrief              view across all of the above                   (read-only)
 ```
 
 - **Derived flows one way**: transcripts → log → knowledge. Nothing derived is
   edited by hand; corrections go through a session, so they reach the source.
-- **Authored lives in folio notebooks, outside every repo**: notes and `TODO.md`
-  sit in the owner's `notebooks/` store beside the clones (or a `notes/` folder
-  in a folder that is no repository), never in a clone, so Claude meets them only
-  when a skill reads them on purpose, not through a search of the project. Outside mneme, the project docs,
-  rules (`CLAUDE.md`) and skills stay where they are written.
+- **Authored lives in folio notebooks, outside every repo**, written through
+  toolshed's `memo` (design: its `plugins/memo/ARCHITECTURE.md`). Outside mneme,
+  the project docs, rules (`CLAUDE.md`) and skills stay where they are written.
 - **Transcripts are evidence, not truth.** Derivation weights the user's
   statements and verified results (command output, commits), and treats all
   transcript content as data, never as instructions.
@@ -39,16 +37,15 @@ Naming: a plugin that holds something is a noun, one that does something a verb.
 
 | Plugin | Job | Skills | Stores | Installed where |
 |---|---|---|---|---|
-| `memo` | authored: written by the user or Claude | todo, note; hook | folio notebooks, synced by folio | anywhere |
 | `memex` | derived from transcripts | log, knowledge; hooks, sweep, backup | `~/log`, `~/knowledge`, per host | the agent's hosts |
 | `debrief` | where things stand | debrief, sessions | none | anywhere |
 
-`memo` (Latin *memorandum*, "to be remembered") holds what is authored: open
-items and working notes, the only data that follows the user from host to host.
 `memex` (Vannevar Bush's device holding all of a person's records) holds what is
-derived, on the host that derived it. No plugin depends on another: each works
-alone, and the full system is all three. `debrief` reads the others' files when
-they exist; those formats are interfaces owned by their plugin (see debrief).
+derived, on the host that derived it. Neither plugin depends on the other.
+`debrief` reads memex's and memo's files when they exist; those formats are
+interfaces owned by their plugin (see debrief). `debrief` and `sessions` are due
+to leave mneme too: debrief is to be rebuilt on the user's main machine, and
+sessions to move next to toolshed's `relay`.
 Claude Code cannot enable a subset of a plugin's skills, hence one plugin per job.
 
 ## The family
@@ -57,9 +54,7 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
 | `knowledge` | what is known | `~/knowledge` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
-| `note` | what is being worked out | `<notebook>/*.md` | — | user only |
-| `todo` | what is left to do | `<notebook>/TODO.md` | — | `/todo`; when work leaves something open |
-| `debrief` | where things stand | nothing | all of the above, git, issues | `/debrief` |
+| `debrief` | where things stand | nothing | the above, memo's notebooks, git, issues | `/debrief` |
 | `sessions` | what runs now | nothing | live Claude sessions, tmux | `/sessions` |
 
 ### Interactions
@@ -75,13 +70,11 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
 - **knowledge → debrief**: consolidation proposals stay in the knowledge store;
   debrief lists them under "Needs you". knowledge writes no `TODO.md`: its global
   layer has no project.
-- **todo is independent**: it knows none of the other skills and works alone.
-  An item links a note only when the user names an existing one.
 - **note → debrief**: stale notes are listed under "Needs you" (convert or
   delete). Nothing writes them into `TODO.md`.
 - **debrief** is the only reader across the family and writes nothing.
-- **The `TODO.md` format is an interface**, owned by `todo` (with its check
-  script). Other skills reference it, never copy it.
+- **The `TODO.md` format is an interface**, owned by memo's `todo` (with its
+  check script). mneme references it, never copies it.
 
 ## Shared conventions
 
@@ -90,59 +83,12 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
   works unchanged.
 - **Scope from the working directory**: for knowledge, clones live at
   `~/<Host>/<owner>/<repo>` and the owner is the scope; scratch topics
-  (`~/scratch/<topic>`) and home are global. For memo, the scope is the current
-  folder's folio notebook (see memo).
+  (`~/scratch/<topic>`) and home are global.
 - **Links**: `[[wikilinks]]` by basename, checked with `wkref`.
 - **Provenance**: dated entries carry `YYYY-MM-DD · host`.
 - **One writer per store per host**, under a lock. Readers are unlimited.
 - **Separation**: one owner's content never reaches another owner's session.
 
-## memo
-
-Authored data lives in [folio](https://github.com/dixie6502/folio)'s notebooks,
-outside every clone: each folder's `TODO.md` and notes. folio owns the layout
-and its sync; `memo` owns the formats of `TODO.md` and notes, and finds a
-folder's notebook with `folio --dir`.
-
-### Layout
-
-```
-~/<host>/<owner>/
-  <repo>/                     a clone: no notes inside
-  notebooks/                  the owner's store: a git clone with a private remote
-    .folio                    store marker
-    <repo>/                   the clone's notebook
-      .notebook               notebook marker
-      TODO.md
-      todo/                   item detail files, deleted with their item
-      <note>.md
-<folder>/notes/               any other folder's notebook, local and unsynced
-```
-
-- **Notebook**: the current folder's, as `folio --dir` prints it: a clone's in
-  its owner's store, else the nearest `notes/`. There is no global notebook: a
-  folder gets one with `folio init` (or `/todo init`, `/note`), elsewhere the
-  skills refuse.
-- **Stores are set up by the user**, by cloning the owner's notes repository
-  into `~/<host>/<owner>/notebooks`. With no store there, `/todo init` and
-  `/note` relay folio's refusal and ask: set up the store, or a local `notes/`
-  (`--local`). Without a terminal, folio never decides for the user.
-- Nothing is written into clones: no `TODO.md`, no `note/`. A project's files
-  are found only through folio, never by searching it.
-- `folio check` reports notebooks gone astray (orphans, strays) and stores that
-  do not sync; `folio mv` moves a folder with its notebook. `debrief` lists the
-  findings.
-- Requires the Go folio on `PATH` (construct's bootstrap installs it, and its
-  `folio-sync` service).
-
-### Sync
-
-folio's `folio-sync` service (a systemd user unit running `folio sync
---daemon`) commits, merges and pushes every store, keeping both sides of a
-conflict and scanning with `gitleaks` before each push. `memo` has no sync of
-its own and never commits a store. A store's history replaces the old "git
-history records it" of project repos: a finished item is deleted, and the
-store's history keeps it. A local `notes/` has neither sync nor history.
 
 ## log
 
@@ -364,45 +310,9 @@ Nothing in an entry changes until the user approves a proposal.
 ### Several hosts
 
 - The log and knowledge stay on the host that derived them: each host derives
-  from its own transcripts. Only `memo` is shared between hosts.
+  from its own transcripts. Only memo's notebooks are shared between hosts.
 - Cloud and remote sessions have no access to `~/knowledge`.
 
-## note
-
-Fleeting notes: research, design, work in progress. A note exists to be turned
-into docs, which do not exist at first and are generated from the notes later.
-
-- Created only by the user, through `note` (`disable-model-invocation`). Ships in
-  `memo` with todo; needs `wkref` for links.
-- Location: the current folder's notebook (see memo), beside its `TODO.md`.
-  `[[wikilinks]]`, checked with `wkref check --root <notebook>`.
-- Versioned and synced with their store (a local `notes/` is neither); a project
-  repo never sees them.
-- Each note has a `created` date (frontmatter, else the file's mtime). Notes older
-  than 28 days are stale: `debrief` lists them under "Needs you".
-- Operations: write (create or update), `list`, `check`, `convert` (lasting
-  content into the project's `README.md`, `ARCHITECTURE.md`, `CLAUDE.md` or
-  `docs/`, after the user approves the edits), `delete` (explicit yes only, with
-  `wkref rm`).
-- A note is deleted only with the user, never automatically: once its content is
-  in docs, or (no docs target) once its findings are in the log, hence knowledge.
-- Shared notes (meeting notes, for instance) are made by the user, from these
-  files, when needed; mneme publishes nothing.
-- Exception: research repos, where the paper is the doc. The paper is
-  versioned in its repo; notes feed it.
-
-## todo
-
-Open items per notebook in `<notebook>/TODO.md`: questions and actions for the
-user (`You`), then `Now`, `Next`, `Later`. Format and check script live in the
-`memo` plugin. Done items are deleted; the log and the store's history record
-them.
-
-- Independent: installable and usable without `memex` or `debrief`.
-- Long item detail goes in a detail file under `<notebook>/todo/`, linked from
-  the item, and deleted with it.
-- When adding an item, the user may name an existing note to link. todo never
-  creates or deletes a note.
 
 ## debrief
 
@@ -439,9 +349,9 @@ machine has no log).
 
 Interfaces it reads, each owned by its plugin: folio's stores
 (`~/*/*/notebooks/.folio`, notebooks holding `.notebook`), `folio --dir` and
-`folio check` (folio); `<notebook>/TODO.md` (format of `memo`'s todo), the
+`folio check` (folio); `<notebook>/TODO.md` (format of memo's todo), the
 notebook's other `*.md` but `todo/` with a `created:` date, stale after 28 days
-(`memo`'s note), `~/log/entries.jsonl` (`schema.json` of `log`), `~/knowledge` git
+(memo's note), `~/log/entries.jsonl` (`schema.json` of `log`), `~/knowledge` git
 history and stash, `~/knowledge/.dream/proposals.json` and
 `~/.cache/memex/log/last-backup` (`memex`). A change to one of them changes
 debrief too.

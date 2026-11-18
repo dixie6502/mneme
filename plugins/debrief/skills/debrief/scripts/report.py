@@ -13,7 +13,7 @@ owner/repo leaves out owner/repo-other. Filters match case-insensitively (store
 notebook ids are lowercased, as repositories are matched).
 
 The report is markdown with a fixed layout; a section shows only when its data
-exists, so it works with any mix of the memo and memex plugins. Their files
+exists, so it works with any mix of the memo (toolshed) and memex plugins. Their files
 are read directly, as interfaces owned by those plugins (ARCHITECTURE.md > debrief).
 After the report, a context block gives the model the log details for its one
 summary line. Only side effect: an unfiltered run records its time for the next

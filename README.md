@@ -1,8 +1,8 @@
 # mneme
 
-A Claude Code marketplace for an agent's information system: what happened
-(log), what is known (knowledge), what is being worked out (note), what is left to
-do (todo), and where things stand (debrief).
+A Claude Code marketplace for an agent's memory: what happened (log), what is
+known (knowledge), and where things stand (debrief). Open items and notes
+(`todo`, `note`) are the `memo` plugin of the toolshed marketplace.
 
 Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -10,28 +10,20 @@ Design: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 | Plugin | Job | Skills |
 |---|---|---|
-| `memo` | what is left to do, what is being worked out, in folio notebooks | todo, note |
 | `memex` | memory: log and knowledge, written from transcripts | log, knowledge |
 | `debrief` | where things stand, from whatever data exists | debrief, sessions |
 
-None depends on another; the full system is all three.
+Neither depends on the other.
 
 ## Install
 
 ```
 claude plugin marketplace add dixie6502/mneme
-claude plugin install memo@mneme      # open items and notes (folio notebooks)
 claude plugin install memex@mneme     # memory: log, knowledge, backup
 claude plugin install debrief@mneme   # overview and live sessions
 ```
 
-Do not enable `memo@mneme` next to another plugin that ships a `todo` skill: both
-would manage open items. `memo` needs [folio](https://github.com/dixie6502/folio)
-on `PATH`, and `note` needs `wkref` for its links. `memo` keeps every `TODO.md` and
-note in the current folder's folio notebook, outside the clones: in the owner's
-`notebooks/` store (clone the owner's notes repository into
-`~/<host>/<owner>/notebooks`), or a local `notes/` folder elsewhere. folio's
-`folio-sync` service syncs the stores; `memo` itself never commits. `memex` writes
+`memex` writes
 its log to `~/log` and its state to `~/.cache/memex/`; `debrief` keeps its last run
 in `~/.cache/debrief/`. Both expect clones at `~/<Host>/<owner>/<repo>`.
 
@@ -44,6 +36,8 @@ restore: `ARCHITECTURE.md` › Backup.
 
 Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
 
+- `memo@mneme` moved to toolshed: enable `memo@toolshed` instead (same skills,
+  same data), then uninstall `memo@mneme`.
 - `migrate/memex.sh`, with no session writing: moves `~/memex` to `~/knowledge`
   and `~/.cache/recall` to `~/.cache/memex`, then prints the remaining steps
   (reinstall the plugin, rename the `RECALL_BACKUP_*` settings).
@@ -53,7 +47,7 @@ Once per host, from the clone (details: `ARCHITECTURE.md` › Migration):
 Load a plugin from the clone for one session, without installing it:
 
 ```
-claude --plugin-dir ./plugins/memo --plugin-dir ./plugins/memex --plugin-dir ./plugins/debrief
+claude --plugin-dir ./plugins/memex --plugin-dir ./plugins/debrief
 ```
 
 Check the manifests with `claude plugin validate .`.
