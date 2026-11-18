@@ -37,8 +37,6 @@ readonly LONG_ENTRY_LINES=80                       # about a screen
 readonly RECENT_DAYS=7                             # applied or skipped, still listed
 readonly PENDING='["open", "approved", "failed"]'  # a layer with these is not dreamed
 readonly DECIDABLE='["open", "failed"]'            # statuses the user can decide on
-# Sonnet's safeguards refuse some harmless security-adjacent content; Haiku's do not.
-readonly MODELS=(sonnet haiku)
 
 # jq definitions over the proposals file: the user's decisions and their track record.
 # decision: approved, rejected, or null (pending, or a retirement the user asked for,
@@ -112,25 +110,10 @@ layer_hints() {
 }
 
 # Runs a model turn in a layer under a JSON schema; prints its structured output, or
-# "null". Moves to the next model when one's safeguards refuse.
-# Usage: ask_model read|edit <layer> <prompt file> <schema file> <input>
-ask_model() {
-  local access=$1 layer=$2 prompt_file=$3 schema_file=$4 input=$5 model reply
-  for model in "${MODELS[@]}"; do
-    # claude exits non-zero on a refusal; its JSON still says why, so read it anyway.
-    reply=$({ run_in_layer "$access" "$model" "$layer" "$prompt_file" "$input" \
-      --output-format json --json-schema "$(<"$schema_file")" || true; } |
-      jq -c '{output: .structured_output, stop_reason}' 2>/dev/null) || reply=""
-    # No reply at all (claude crashed, printed nothing) counts as no answer.
-    [[ -n $reply ]] || reply='{"output": null}'
-    if [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]]; then
-      echo "knowledge dream: $model refused layer $layer" >&2
-      continue
-    fi
-    jq -c '.output' <<<"$reply"
-    return 0
-  done
-  echo null
+# "null" (no answer, or every model refused).
+# Usage: ask_for_json read|edit <layer> <prompt file> <schema file> <input>
+ask_for_json() {
+  ask_model "$1" "$2" "$3" "$5" --json-schema "$(<"$4")" | jq -c '.output'
 }
 
 # Proposes consolidations for each layer that changed since its last dream.
@@ -158,7 +141,7 @@ propose() {
     input=$(jq -n -c --argjson base "$(layer_input "$layer")" \
       --argjson hints "$(layer_hints "$layer")" --argjson history "$history" \
       --argjson record "$record" '$base + {hints: $hints, history: $history, track_record: $record}')
-    output=$(ask_model read "$layer" "$SKILL_DIR/dream-prompt.md" \
+    output=$(ask_for_json read "$layer" "$SKILL_DIR/dream-prompt.md" \
       "$SKILL_DIR/dream-schema.json" "$input")
     if [[ $output == null ]]; then
       echo "knowledge dream: no answer for layer $layer" >&2
@@ -385,7 +368,7 @@ apply() {
     ids=$(jq -r 'map(.id | tostring) | join(", ")' <<<"$batch")
     input=$(jq -n -c --argjson base "$(layer_input "$layer")" --arg host "$(hostname)" \
       --argjson proposals "$batch" '$base + {host: $host, proposals: $proposals}')
-    output=$(ask_model edit "$layer" "$SKILL_DIR/apply-prompt.md" \
+    output=$(ask_for_json edit "$layer" "$SKILL_DIR/apply-prompt.md" \
       "$SKILL_DIR/apply-schema.json" "$input")
     results=$(jq -c 'if . == null then [] else .results end' <<<"$output")
     local changed=("$layer")

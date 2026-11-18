@@ -53,19 +53,29 @@ start=$(jq -r '.start // empty' <<<"$messages_json")
 end=$(jq -r '.end // empty' <<<"$messages_json")
 committer=$(git config --global user.email)
 
-# Commits by dixie in any clone during the session window.
+# The session's claude.ai URLs (announced once, so read from the whole transcript).
+session_urls=$({ grep -h -e '"bridge_status"' -e '"remote_session_change"' "$TRANSCRIPT" || true; } |
+  jq -R -s -c '[split("\n")[] | fromjson? // empty | .url // .attachment.url // empty] | unique')
+
+# Commits by dixie in any clone during the session window. A commit whose
+# Claude-Session trailer names another session is that session's: parallel
+# sessions share the window. Without the trailer, the window alone decides.
 commits_json=$(
   if [[ -n $start && -n $end ]]; then
     for git_dir in "$HOME"/*/*/*/.git; do
       repo_dir=$(dirname "$git_dir")
-      git -C "$repo_dir" log --all --since="$start" --until="$end" \
-        --committer="$committer" --format="%h%x09%cI%x09%s" 2>/dev/null |
-        while IFS=$'\t' read -r hash time subject; do
+      git -C "$repo_dir" log --all --since="$start" --until="$end" --committer="$committer" \
+        --format="%h%x1f%cI%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%s" \
+        2>/dev/null |
+        while IFS=$'\x1f' read -r hash time sessions subject; do
           jq -n -c --arg repo "${repo_dir#"$HOME"/}" --arg hash "$hash" \
-            --arg time "$time" --arg subject "$subject" '$ARGS.named'
+            --arg time "$time" --arg sessions "$sessions" --arg subject "$subject" '$ARGS.named'
         done
     done
-  fi | jq -s -c 'unique_by(.hash) | sort_by(.time)')
+  fi | jq -s -c --argjson own "$session_urls" '
+    unique_by(.hash)
+    | map(select(.sessions == "" or (.sessions | split(",") | any(IN($own[])))) | del(.sessions))
+    | sort_by(.time)')
 
 jq --argjson commits "$commits_json" --argjson from "$FROM_LINE" \
   --argjson to "$TO_LINE" '. + {from_line: $from, to_line: $to, commits: $commits}' \

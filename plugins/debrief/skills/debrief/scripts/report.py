@@ -8,8 +8,9 @@ Usage: report.py [all] [last|N] [filter]
   filter  substring of a project scope (e.g. dixie6502/construct): that project in full
 
 Run inside a folder with a folio notebook without `all` or a filter, it is local:
-the filter is that notebook's id (`folio --dir`). Filters match case-insensitively
-(store notebook ids are lowercased, as repositories are matched).
+the filter is that notebook's id (`folio --dir`), matched as a whole scope, so
+owner/repo leaves out owner/repo-other. Filters match case-insensitively (store
+notebook ids are lowercased, as repositories are matched).
 
 The report is markdown with a fixed layout; a section shows only when its data
 exists, so it works with any mix of the memo and memex plugins. Their files
@@ -163,9 +164,16 @@ def display_name(path: str) -> str:
     return "~" if path in (".", str(HOME)) else path.removeprefix("GitHub/")
 
 
-def matches(project_filter: str, name: str) -> bool:
-    """True when the filter is in the name, ignoring case (folio lowercases repos)."""
-    return project_filter.lower() in name.lower()
+def scope_pattern(project_filter: str, is_whole_scope: bool) -> re.Pattern[str]:
+    """The filter as a pattern over names, ignoring case (folio lowercases repos): a
+    substring, or the whole scope at the end of a name (GitHub/owner/repo)."""
+    text = re.escape(project_filter)
+    return re.compile(rf"(^|/){text}$" if is_whole_scope else text, re.IGNORECASE)
+
+
+def matches(project_pattern: re.Pattern[str], name: str) -> bool:
+    """True when the name matches the project filter's pattern."""
+    return bool(project_pattern.search(name))
 
 
 def parse_arguments(arguments: list[str]) -> tuple[bool, str, str]:
@@ -218,7 +226,7 @@ def read_issues(repo: str) -> tuple[list[dict], bool]:
     return json.loads(output), False
 
 
-def collect_projects(project_filter: str) -> list[Project]:
+def collect_projects(project_pattern: re.Pattern[str]) -> list[Project]:
     """Projects with a TODO.md in a folio notebook or a GitHub clone, matching the filter."""
     projects: dict[str, Project] = {}
 
@@ -227,13 +235,13 @@ def collect_projects(project_filter: str) -> list[Project]:
 
     for notebook_id, notebook in list_notebooks():
         todo_file = notebook / "TODO.md"
-        if todo_file.exists() and matches(project_filter, notebook_id):
+        if todo_file.exists() and matches(project_pattern, notebook_id):
             project_at(notebook_id).todo = read_todo(todo_file)
     clones = [
         str(git.parent.relative_to(HOME / "GitHub")).lower()  # as folio ids repos
         for git in clone_paths("GitHub/*/*/.git")
     ]
-    clones = [scope for scope in clones if matches(project_filter, scope)]
+    clones = [scope for scope in clones if matches(project_pattern, scope)]
     with ThreadPoolExecutor() as pool:
         results = pool.map(read_issues, clones)
         for scope, (issues, is_unreadable) in zip(clones, results, strict=True):
@@ -248,19 +256,20 @@ def is_waiting_on_user(issue: dict) -> bool:
     return any(label["name"] == "user" for label in issue["labels"])
 
 
-def read_log_entries(selection: str, project_filter: str) -> tuple[list[dict], str]:
+def read_log_entries(
+    selection: str, project_pattern: re.Pattern[str]
+) -> tuple[list[dict], str]:
     """The log entries to show, and the section title describing them."""
     entries = []
     if LOG_ENTRIES.exists():
         entries = [
             json.loads(line) for line in LOG_ENTRIES.read_text().splitlines() if line
         ]
-    if project_filter:
-        entries = [
-            entry
-            for entry in entries
-            if any(matches(project_filter, repo) for repo in entry_repos(entry))
-        ]
+    entries = [
+        entry
+        for entry in entries
+        if any(matches(project_pattern, repo) for repo in entry_repos(entry))
+    ]
     entries.sort(key=lambda entry: entry["end"])
     if selection == "last":
         since = read_last_debrief()
@@ -283,12 +292,12 @@ def format_time(timestamp: str) -> str:
     return f"{timestamp[5:10]} {timestamp[11:16]} UTC"
 
 
-def collect_local_state(project_filter: str) -> list[str]:
+def collect_local_state(project_pattern: re.Pattern[str]) -> list[str]:
     """One line per clone with uncommitted or unpushed work."""
     lines = []
     for git in clone_paths("*/*/*/.git"):
         path = str(git.parent.relative_to(HOME))
-        if not matches(project_filter, path):
+        if not matches(project_pattern, path):
             continue
         changed = len(
             run(["git", "-C", str(git.parent), "status", "--porcelain"]).splitlines()
@@ -333,7 +342,7 @@ def claude_project_slug(directory: Path) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", str(directory))
 
 
-def render_memory_line(project_filter: str) -> list[str]:
+def render_memory_line(project_pattern: re.Pattern[str]) -> list[str]:
     """One line listing projects whose memory holds notes, as a reminder to promote them."""
     known = [
         HOME,
@@ -350,7 +359,7 @@ def render_memory_line(project_filter: str) -> list[str]:
         directory = path_by_slug.get(memory.parent.name)
         name = str(directory.relative_to(HOME)) if directory else memory.parent.name
         name = display_name(name)
-        if not matches(project_filter, name):
+        if not matches(project_pattern, name):
             continue
         oldest_days = days_since(min(note.stat().st_mtime for note in notes))
         parts.append(
@@ -379,11 +388,11 @@ def note_age_days(note: Path) -> int:
     return days_since(created.timestamp() if created else note.stat().st_mtime)
 
 
-def render_stale_notes_line(project_filter: str) -> list[str]:
+def render_stale_notes_line(project_pattern: re.Pattern[str]) -> list[str]:
     """One line listing notebooks with stale notes, to convert into docs or delete."""
     parts = []
     for name, notebook in list_notebooks():
-        if not matches(project_filter, name):
+        if not matches(project_pattern, name):
             continue
         ages = [note_age_days(note) for note in notebook_notes(notebook)]
         stale = [age for age in ages if age > STALE_NOTE_DAYS]
@@ -545,13 +554,14 @@ def main() -> None:
     is_local = not is_all and not project_filter and bool(current_id)
     if is_local:
         project_filter = current_id
+    project_pattern = scope_pattern(project_filter, is_whole_scope=is_local)
     run_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    projects = collect_projects(project_filter) or (
+    projects = collect_projects(project_pattern) or (
         [Project(current_id)] if is_local else []
     )
-    entries, log_title = read_log_entries(selection, project_filter)
+    entries, log_title = read_log_entries(selection, project_pattern)
     running = ([] if project_filter else collect_live_sessions()) + collect_local_state(
-        project_filter
+        project_pattern
     )
     is_in_full = bool(project_filter)
 
@@ -565,8 +575,8 @@ def main() -> None:
     add_section(
         "Needs you",
         render_needs_you(projects)
-        + render_memory_line(project_filter)
-        + render_stale_notes_line(project_filter)
+        + render_memory_line(project_pattern)
+        + render_stale_notes_line(project_pattern)
         + render_folio_check_lines()
         + render_knowledge_failures()
         + render_dream_line()

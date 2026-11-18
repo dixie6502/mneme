@@ -183,7 +183,9 @@ skills/log/
   entries, skipped parts in `~/.cache/memex/log/skipped/`), under a lock on
   `~/log/.lock`. Re-running is harmless.
 - **Writer**: `extract.sh` builds the digest (prompts, replies, commits in the
-  session window across clones, issue links, memory notes written). Trivial parts
+  session window across clones, issue links, memory notes written). A commit whose
+  `Claude-Session` trailer names another session is left to that one, since
+  parallel sessions share the window. Trivial parts
   (fewer than 2 prompts, no commit) are skipped without a model call. A headless
   Sonnet run with no tools fills `schema.json`; links absent from the digest are
   dropped; the script renders the markdown and appends the JSON.
@@ -296,23 +298,28 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 `find` still sees a fresh `remember` through the log search.
 
 - **Source scope = target scope**: an entry's scope is its directory's owner; from
-  home or scratch, the single owner of the repos it committed to, else global. An
+  home or scratch, the single owner of the repos it committed to, else global. Both
+  use `knowledge.sh scope`, so only `~/<Host>/<owner>/<repo>` clones name an owner. An
   entry spanning several owners is not filed (reported in the run log).
 - **Which facts**: entries with `found`, `decided` or `remember`, past each scope's
   progress marker (`~/.cache/memex/log/knowledge-filed/<scope>`). Global is filed
   first, so owner layers can link to its new entries.
-- **Confined model run**: one headless Sonnet run per layer and batch of 25 items,
-  following `file-prompt.md`. Its working directory is the layer; it may edit only
+- **Confined model run**: one headless Sonnet run per layer and batch of 25 items
+  (Haiku when Sonnet's safeguards refuse), following `file-prompt.md`. Its working directory is the layer; it may edit only
   there and read only there and in global, so other owners' layers stay out of
   reach. Every `remember` is filed; other facts only if durable.
 - **Gate**: names, `wkref check` and upward links pass, and nothing changed
-  outside the layer. Pass: commit (local only). Fail: the attempt goes to `git
-  stash`, the scope retries next run, and `debrief` shows the failure.
+  outside the layer. Pass: commit (local only). Fail, or no answer from the model:
+  the attempt (the whole store's changes) goes to `git stash`, the scope retries
+  next run, and `debrief` shows the failure. A batch every model refuses is
+  skipped, as the log skips a part both models refuse.
 - **Interrupted runs**: a writer cut short (a shutdown mid-edit) leaves the store
   uncommitted. The next writer, holding the lock, moves such changes to `git stash`
   before it starts, so filing and dream never stall on them; `debrief` counts them.
 - `scripts/writer.sh` holds what the writers share: the lock, the confined model
-  run, the outside-the-layer check, commit and stash, the model input's base.
+  run with its Haiku fallback, the outside-the-layer check, commit and stash, the
+  model input's base. `knowledge.sh init` commits only the scaffold files it
+  creates, so it never commits a hand edit.
 
 ### Dream
 
@@ -413,7 +420,9 @@ machine has no log).
   is local: that project in full, its log entries and its "Needs you". Run
   elsewhere, or as `/debrief all`, it covers every project. Host-wide alerts
   (folio check, knowledge writes, backup) show either way. Filters match
-  without case; store notebook ids (`<owner>/<repo>`) are lowercased.
+  without case; store notebook ids (`<owner>/<repo>`) are lowercased. A given
+  filter is a substring; the local one is the whole scope, so `<owner>/<repo>`
+  leaves out `<owner>/<repo>-<other>`.
 - **Needs you**: `You` items from every `TODO.md` in every store (questions first),
   issues labelled `user`, Claude auto memory folders holding notes to promote,
   notebooks with stale notes, `folio check` findings (sync included), failed or

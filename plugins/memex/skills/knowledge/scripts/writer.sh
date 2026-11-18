@@ -3,6 +3,8 @@
 # shellcheck shell=bash
 
 readonly LOCK_WAIT_SECONDS=30   # for the user's commands, which must not hang
+# Sonnet's safeguards refuse some harmless security-adjacent content; Haiku's do not.
+readonly MODELS=(sonnet haiku)
 
 # Prints today's date, as the store writes it.
 today() { date +%F; }
@@ -41,6 +43,28 @@ run_in_layer() {
     --model "$model" --no-session-persistence --permission-mode dontAsk "$@" \
     --tools "${tools[@]}" --allowedTools "${rules[@]}" <<<"$input")
 }
+
+# Runs a model turn in a layer, moving to the next model when one's safeguards
+# refuse. Prints the last reply as {output (structured output), stop_reason,
+# is_error}; no reply at all (claude crashed, printed nothing) is an error.
+# Usage: ask_model read|edit <layer> <prompt file> <input> [claude args...]
+ask_model() {
+  local access=$1 layer=$2 prompt_file=$3 input=$4 model reply
+  shift 4
+  for model in "${MODELS[@]}"; do
+    # claude exits non-zero on a refusal; its JSON still says why, so read it anyway.
+    reply=$({ run_in_layer "$access" "$model" "$layer" "$prompt_file" "$input" \
+      --output-format json "$@" || true; } |
+      jq -c '{output: .structured_output, stop_reason, is_error}' 2>/dev/null) || reply=""
+    [[ -n $reply ]] || reply='{"output": null, "stop_reason": null, "is_error": true}'
+    [[ $(jq -r '.stop_reason' <<<"$reply") == refusal ]] || break
+    echo "knowledge: $model refused layer $layer" >&2
+  done
+  echo "$reply"
+}
+
+# True when a reply (from ask_model) is a refusal by every model.
+is_refused() { [[ $(jq -r '.stop_reason' <<<"$1") == refusal ]]; }
 
 # Stages the store paths and commits them, if anything changed.
 # Usage: commit_store <message> <store paths...>

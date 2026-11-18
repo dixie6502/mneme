@@ -46,10 +46,10 @@ require_store() {
   }
 }
 
-# Writes a layer's #moc index; an owner's index links up to the global one.
+# Writes a layer's #moc index (the layer's folder exists); an owner's index links
+# up to the global one.
 write_index() {
-  local layer="$1" index="$KNOWLEDGE_DIR/$1/$1.md"
-  [[ -f $index ]] && return 0
+  local layer="$1"
   {
     printf -- '---\ncreated: %s\n---\n# %s\n\n#moc\n\n' "$(date +%F)" "$layer"
     if [[ $layer == "$GLOBAL_LAYER" ]]; then
@@ -58,31 +58,42 @@ write_index() {
       echo "Facts about $layer's projects. Up: [[$GLOBAL_LAYER]]"
     fi
     printf '\n## Entries\n'
-  } >"$index"
+  } >"$KNOWLEDGE_DIR/$layer/$layer.md"
 }
 
-# Creates the store (git repo, rules, global layer) and optionally an owner layer,
-# committing only the scaffold it created.
+# Creates the store (git repo, rules, global layer) and optionally an owner layer.
+# Commits only the scaffold files it created: an existing file may hold hand edits.
 init_store() {
-  local owner="${1:-}"
+  local owner="${1:-}" created=() layer
   if [[ ! -d $KNOWLEDGE_DIR/.git ]]; then
     mkdir -p "$KNOWLEDGE_DIR"
     git -C "$KNOWLEDGE_DIR" init -q
   fi
-  local scaffold=(.wikijump CLAUDE.md .gitignore "$GLOBAL_LAYER/$GLOBAL_LAYER.md")
-  touch "$KNOWLEDGE_DIR/.wikijump"
-  [[ -f $KNOWLEDGE_DIR/CLAUDE.md ]] || cp "$SKILL_DIR/store/CLAUDE.md" "$KNOWLEDGE_DIR/CLAUDE.md"
-  [[ -f $KNOWLEDGE_DIR/.gitignore ]] || printf '.lock\n' >"$KNOWLEDGE_DIR/.gitignore"
-  mkdir -p "$KNOWLEDGE_DIR/$GLOBAL_LAYER"
-  write_index "$GLOBAL_LAYER"
-  if [[ -n $owner && $owner != "$GLOBAL_LAYER" ]]; then
-    mkdir -p "$KNOWLEDGE_DIR/$owner"
-    write_index "$owner"
-    scaffold+=("$owner/$owner.md")
+  if [[ ! -f $KNOWLEDGE_DIR/.wikijump ]]; then
+    touch "$KNOWLEDGE_DIR/.wikijump"
+    created+=(.wikijump)
   fi
-  git -C "$KNOWLEDGE_DIR" add -- "${scaffold[@]}"
-  git -C "$KNOWLEDGE_DIR" diff --cached --quiet ||
-    git -C "$KNOWLEDGE_DIR" commit -q -m "Set up knowledge layers: ${owner:-$GLOBAL_LAYER}"
+  if [[ ! -f $KNOWLEDGE_DIR/CLAUDE.md ]]; then
+    cp "$SKILL_DIR/store/CLAUDE.md" "$KNOWLEDGE_DIR/CLAUDE.md"
+    created+=(CLAUDE.md)
+  fi
+  if [[ ! -f $KNOWLEDGE_DIR/.gitignore ]]; then
+    printf '.lock\n' >"$KNOWLEDGE_DIR/.gitignore"
+    created+=(.gitignore)
+  fi
+  local layers=("$GLOBAL_LAYER")
+  [[ -n $owner && $owner != "$GLOBAL_LAYER" ]] && layers+=("$owner")
+  for layer in "${layers[@]}"; do
+    [[ -f $KNOWLEDGE_DIR/$layer/$layer.md ]] && continue
+    mkdir -p "$KNOWLEDGE_DIR/$layer"
+    write_index "$layer"
+    created+=("$layer/$layer.md")
+  done
+  if ((${#created[@]})); then
+    git -C "$KNOWLEDGE_DIR" add -- "${created[@]}"
+    git -C "$KNOWLEDGE_DIR" commit -q -m "Set up knowledge layers: ${owner:-$GLOBAL_LAYER}" \
+      -- "${created[@]}"
+  fi
   echo "$KNOWLEDGE_DIR"
 }
 

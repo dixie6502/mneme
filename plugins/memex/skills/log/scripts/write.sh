@@ -80,8 +80,9 @@ if [[ $(jq '.skip' <<<"$result") == true ]]; then
 fi
 
 # Keep only links that exist in the digest: the model cannot invent a commit.
-# repos: the session's directory (first 3 levels under ~) and the repos of its
-# linked commits, so /debrief can filter entries by repo or owner.
+# repos: the session's directory (first 3 levels under ~; none from ~ itself or
+# outside it) and the repos of its linked commits, so /debrief can filter entries by
+# repo or owner.
 entry=$(jq -c --slurpfile digest "$digest" --arg home "$HOME/" '
   $digest[0] as $d
   | ($d.commits | map(.hash)) as $known_commits
@@ -90,7 +91,8 @@ entry=$(jq -c --slurpfile digest "$digest" --arg home "$HOME/" '
   | ($done | map(.commits[]) | unique) as $linked
   | {session: $d.session, cwd: $d.cwd, start: $d.start, end: $d.end,
    from_line: $d.from_line, to_line: $d.to_line, topic: .topic,
-   repos: ([($d.cwd // "" | ltrimstr($home) | split("/")[:3] | join("/"))]
+   repos: ([($d.cwd // "" | if startswith($home)
+       then ltrimstr($home) | split("/")[:3] | join("/") else "" end)]
      + [$d.commits[] | select(.hash as $h | $linked | index($h)) | .repo]
      | map(select(. != "")) | unique),
    done: [$done[] | .issues |= known($d.issues)],
