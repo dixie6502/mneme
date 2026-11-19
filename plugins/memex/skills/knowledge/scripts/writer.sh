@@ -76,7 +76,7 @@ commit_store() {
 }
 
 # Moves uncommitted changes (all, or under the paths) to `git stash` and says so.
-# Nothing is lost: `git -C ~/knowledge stash list` keeps them and debrief counts them.
+# Nothing is lost: `git -C ~/knowledge stash list` keeps them.
 # Usage: stash_attempt <what happened> [store paths...]
 stash_attempt() {
   local message=$1

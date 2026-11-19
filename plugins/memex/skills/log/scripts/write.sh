@@ -81,7 +81,7 @@ fi
 
 # Keep only links that exist in the digest: the model cannot invent a commit.
 # repos: the session's directory (first 3 levels under ~; none from ~ itself or
-# outside it) and the repos of its linked commits, so /debrief can filter entries by
+# outside it) and the repos of its linked commits, so entries can be filtered by
 # repo or owner.
 entry=$(jq -c --slurpfile digest "$digest" --arg home "$HOME/" '
   $digest[0] as $d

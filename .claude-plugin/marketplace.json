@@ -3,17 +3,12 @@
   "owner": {
     "name": "dixie6502"
   },
-  "description": "An agent's memory: log, knowledge, debrief.",
+  "description": "An agent's memory: log and knowledge, derived from transcripts.",
   "plugins": [
     {
       "name": "memex",
       "source": "./plugins/memex",
       "description": "Memory that writes itself: a session log from transcripts, linked knowledge filed from it, and an encrypted backup."
-    },
-    {
-      "name": "debrief",
-      "source": "./plugins/debrief",
-      "description": "Where things stand across projects, and the live sessions."
     }
   ]
 }

@@ -1,9 +1,10 @@
 # Architecture
 
-mneme is the memory of a Claude Code agent (dixie): what happened, what is
-known, and where things stand. It ships as a Claude Code marketplace with two
-plugins, neither depending on the other. What is authored (open items and notes)
-is the `memo` plugin of the toolshed marketplace (moved there on 2026-11-18).
+mneme is the memory of a Claude Code agent (dixie): what happened and what is
+known. It ships as a Claude Code marketplace with one plugin, `memex`. What is
+authored (open items and notes) is the `memo` plugin of the toolshed marketplace
+(moved there on 2026-11-18). toolshed's `debrief` plugin (replacing mneme's on
+2026-11-19) shows what was done and what runs now.
 
 Status: everything is built. The knowledge dream pass runs in propose mode:
 nothing changes without the user's approval. See `README.md`.
@@ -17,7 +18,6 @@ Claude transcripts   raw, append-only, the only source of truth
 
 notes                fleeting: what is being worked out → docs      (authored, memo)
 TODO.md              open items: what is left to do                 (authored, memo)
-debrief              view across all of the above                   (read-only)
 ```
 
 - **Derived flows one way**: transcripts → log → knowledge. Nothing derived is
@@ -31,22 +31,14 @@ debrief              view across all of the above                   (read-only)
 - Rules (`CLAUDE.md`, loaded every session) and procedures (skills) are not part
   of mneme. mneme holds information loaded on demand.
 
-## Plugins
-
-Naming: a plugin that holds something is a noun, one that does something a verb.
+## Plugin
 
 | Plugin | Job | Skills | Stores | Installed where |
 |---|---|---|---|---|
 | `memex` | derived from transcripts | log, knowledge; hooks, sweep, backup | `~/log`, `~/knowledge`, per host | the agent's hosts |
-| `debrief` | where things stand | debrief, sessions | none | anywhere |
 
 `memex` (Vannevar Bush's device holding all of a person's records) holds what is
-derived, on the host that derived it. Neither plugin depends on the other.
-`debrief` reads memex's and memo's files when they exist; those formats are
-interfaces owned by their plugin (see debrief). `debrief` and `sessions` are due
-to leave mneme too: debrief is to be rebuilt on the user's main machine, and
-sessions to move next to toolshed's `relay`.
-Claude Code cannot enable a subset of a plugin's skills, hence one plugin per job.
+derived, on the host that derived it.
 
 ## The family
 
@@ -54,8 +46,6 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
 |---|---|---|---|---|
 | `log` | what happened | `~/log` (automatic) | transcripts | `/log <question>`; hooks |
 | `knowledge` | what is known | `~/knowledge` (sweep only) | log | user only: `find`, `remember`, `check`, `dream`, `apply`, `reject`, `retire` |
-| `debrief` | where things stand | nothing | the above, memo's notebooks, git, issues | `/debrief` |
-| `sessions` | what runs now | nothing | live Claude sessions, tmux | `/sessions` |
 
 ### Interactions
 
@@ -67,12 +57,9 @@ Claude Code cannot enable a subset of a plugin's skills, hence one plugin per jo
 - **note → knowledge**: no direct path. A note's findings reach knowledge only
   through the log of the session that worked on it.
 - **log → todo**: log entries never hold next steps; open items go to `TODO.md`.
-- **knowledge → debrief**: consolidation proposals stay in the knowledge store;
-  debrief lists them under "Needs you". knowledge writes no `TODO.md`: its global
-  layer has no project.
-- **note → debrief**: stale notes are listed under "Needs you" (convert or
-  delete). Nothing writes them into `TODO.md`.
-- **debrief** is the only reader across the family and writes nothing.
+- **knowledge → you**: consolidation proposals stay in the knowledge store,
+  listed by `/knowledge dream`. knowledge writes no `TODO.md`: its global layer
+  has no project.
 - **The `TODO.md` format is an interface**, owned by memo's `todo` (with its
   check script). mneme references it, never copies it.
 
@@ -145,7 +132,7 @@ skills/log/
 - **Cost**: one small Sonnet call per entry, on the subscription (about $0.07
   API-equivalent). No subagents: the digest of a long session fits one call; split
   it only if a real transcript does not.
-- **Models**: `log`, `debrief` and the writer run on Sonnet: they summarise or
+- **Models**: `log` and the writer run on Sonnet: they summarise or
   search, from a fresh context. The writer falls back to Haiku when Sonnet's
   safeguards refuse a harmless session.
 
@@ -257,11 +244,11 @@ deterministic parts (`scope`, `init`, `find`, `check`).
 - **Gate**: names, `wkref check` and upward links pass, and nothing changed
   outside the layer. Pass: commit (local only). Fail, or no answer from the model:
   the attempt (the whole store's changes) goes to `git stash`, the scope retries
-  next run, and `debrief` shows the failure. A batch every model refuses is
+  next run, and the run log says why. A batch every model refuses is
   skipped, as the log skips a part both models refuse.
 - **Interrupted runs**: a writer cut short (a shutdown mid-edit) leaves the store
   uncommitted. The next writer, holding the lock, moves such changes to `git stash`
-  before it starts, so filing and dream never stall on them; `debrief` counts them.
+  before it starts, so filing and dream never stall on them; `git stash list` keeps them.
 - `scripts/writer.sh` holds what the writers share: the lock, the confined model
   run with its Haiku fallback, the outside-the-layer check, commit and stash, the
   model input's base. `knowledge.sh init` commits only the scaffold files it
@@ -286,7 +273,7 @@ Nothing in an entry changes until the user approves a proposal.
 - **Decide**: `/knowledge dream` lists the scope's proposals; `/knowledge apply
   <ids>` or `/knowledge reject <ids>` is the user's decision, and the only trigger
   for a change. `/knowledge retire <entry>` records an approved retirement the user
-  asks for directly. `debrief` counts the proposals waiting under "Needs you".
+  asks for directly.
 - **Apply**: in the background, one confined model run per layer
   (`apply-prompt.md`, `apply-schema.json`), editing that layer only. An applied
   merge leaves the absorbed entries to the script, which repoints links to them
@@ -314,58 +301,6 @@ Nothing in an entry changes until the user approves a proposal.
 - Cloud and remote sessions have no access to `~/knowledge`.
 
 
-## debrief
-
-Its own plugin, read-only, depending on nothing: it reports from whatever data
-exists, so it works with any mix of the other plugins. A section shows only when
-its data does.
-
-### debrief: where things stand
-
-`scripts/report.py` prints a fixed layout so it reads the same every time; the
-model only adds a one-line "Where we are" from the log details (skipped when the
-machine has no log).
-
-- **Local or all**: run inside a folder with a notebook (`folio --dir`), debrief
-  is local: that project in full, its log entries and its "Needs you". Run
-  elsewhere, or as `/debrief all`, it covers every project. Host-wide alerts
-  (folio check, knowledge writes, backup) show either way. Filters match
-  without case; store notebook ids (`<owner>/<repo>`) are lowercased. A given
-  filter is a substring; the local one is the whole scope, so `<owner>/<repo>`
-  leaves out `<owner>/<repo>-<other>`.
-- **Needs you**: `You` items from every `TODO.md` in every store (questions first),
-  issues labelled `user`, Claude auto memory folders holding notes to promote,
-  notebooks with stale notes, `folio check` findings (sync included), failed or
-  interrupted knowledge writes, and, where the log runs, a backup that is
-  unconfigured or more than two days old;
-- **Running now**: a count of the other live Claude sessions (details:
-  `/sessions`) and clones with uncommitted or unpushed work;
-- **Log**: the latest N entries, or `last` (since the previous `all` debrief, time
-  kept in `~/.cache/debrief/last-run`);
-- **Knowledge**: entries changed since the last debrief (what changed, not
-  content: content is what `find` is for);
-- **Projects** (all only): per notebook, the `Now` or first `Next` item, counts, open
-  issues.
-
-Interfaces it reads, each owned by its plugin: folio's stores
-(`~/*/*/notebooks/.folio`, notebooks holding `.notebook`), `folio --dir` and
-`folio check` (folio); `<notebook>/TODO.md` (format of memo's todo), the
-notebook's other `*.md` but `todo/` with a `created:` date, stale after 28 days
-(memo's note), `~/log/entries.jsonl` (`schema.json` of `log`), `~/knowledge` git
-history and stash, `~/knowledge/.dream/proposals.json` and
-`~/.cache/memex/log/last-backup` (`memex`). A change to one of them changes
-debrief too.
-
-### sessions: what runs now
-
-`scripts/sessions.py` lists the live Claude sessions, interactive and
-background, from `claude agents --json` (else Claude Code's
-`~/.claude/sessions/<pid>.json`): folder, name, status, tmux pane (through the
-process tree), age, last activity, title (the user's `/rename`, else Claude's)
-and the latest recap ("while you were away"), from the transcript. Then the
-other tmux panes: id, foreground command, folder. A pane's screen is never read:
-it may hold secrets. `report.py` calls it with `--count` for its one line.
-
 ## Backup
 
 Transcripts are the only source of truth and live on one host. The log and
@@ -387,14 +322,14 @@ identically. The sweep backs up all three, encrypted, after filing knowledge.
 - **Configuration**: `MEMEX_BACKUP_DIR` (the clone) and
   `MEMEX_BACKUP_RECIPIENTS` (an age recipients file: `age1…` or `ssh-ed25519`
   lines), set in Claude Code's `env` settings so hooks see them. Unset: no backup,
-  and `debrief` says so.
+  and the run log says so.
 - **Incremental**: a transcript still growing is packed again in full each day;
   compression keeps that cheap (62 MB of transcripts → 5 MB).
 - **Failures**: the marker `~/.cache/memex/log/last-backup` advances only after a
   push, so a failed run is retried whole the next day. A run cut short (a
   shutdown) is finished by the next one: it deletes a half-written `.partial`,
-  commits a finished archive left uncommitted, and pushes unpushed commits. Errors go to the run log;
-  `debrief` flags a last success more than two days old.
+  commits a finished archive left uncommitted, and pushes unpushed commits.
+  Errors go to the run log.
 - **Retention**: transcripts are deleted after Claude Code's `cleanupPeriodDays`;
   set it high (years), since knowledge and `/log` reach back to them.
 - **Restore**, oldest archive first (names sort by time):
@@ -414,6 +349,8 @@ From the previous layout, once per host, with the scripts in `migrate/`.
   with the `memex-filed` and `memex-dreamed` markers renamed `knowledge-*`; the
   store's rules refreshed and committed. Then `RECALL_BACKUP_*` → `MEMEX_BACKUP_*`
   in Claude Code's `env` settings, and `recall@mneme` replaced by `memex@mneme`.
+- `debrief@mneme` → `debrief@toolshed`; `~/.cache/debrief/` can go. Its alerts
+  (stale backup, failed knowledge writes, waiting proposals) are not carried over.
 - The move of `TODO.md` and notes out of clones into `~/memo`, then into folio
   notebooks there, is in git history (`migrate/memo.sh`, `migrate/folio.sh`).
   The move from `~/memo` to the owners' stores is in folio's git history
